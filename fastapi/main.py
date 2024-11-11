@@ -7,6 +7,18 @@ from database import SessionLocal, engine
 import models
 
 app = FastAPI()
+models.Base.metadata.create_all(bind=engine)
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+db_dependency = Annotated[Session, Depends(get_db)]
+
+### Classes/tables stored and used in database ###
 
 class RINNBase(BaseModel):
     epoch: int
@@ -14,5 +26,16 @@ class RINNBase(BaseModel):
     training_score: int
     training_output: Json
 
-class RINNBase_Data(BaseModel):
+class RINNBase_data(BaseModel):
     training_data: Json
+
+### POST requests ###
+
+@app.post("/RINN_data/")
+async def create_RINN_data(_RINN_data: RINNBase_data, db: db_dependency):
+    db_RINN_data = models.RINN_data(_RINN_data.training_data)
+    db.add(db_RINN_data)
+    db.commit()
+    db.refresh(db_RINN_data)
+
+    return db_RINN_data

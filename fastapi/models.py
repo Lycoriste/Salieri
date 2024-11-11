@@ -2,7 +2,7 @@ from database import Base
 from sqlalchemy import Column, Integer, String, JSON, Boolean, Float
 from database import Base
 
-# Reinforcement Inferencing Neural Network
+### Reinforcement Inferencing Neural Network (RINN) training results
 class RINN(Base):
     __tablename__ = 'training_results'
 
@@ -12,8 +12,8 @@ class RINN(Base):
     training_score = Column(Integer)
     training_output = Column(JSON)
 
-
-class RINN_Data(Base):
+### Table for storing data retrieved from client
+class RINN_data(Base):
     __tablename__ = 'training_data'
 
     id = Column(Integer, primary_key=True, index=True)
