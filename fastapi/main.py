@@ -18,8 +18,8 @@ def get_db():
 
 db_dependency = Annotated[Session, Depends(get_db)]
 
-### Classes/tables stored and used in database ###
-#** Using dict instead of Json due to pydantic validation failing for ROBLOX
+### Classes/tables stored and used in database
+# Using dict instead of Json due to pydantic validation failing for ROBLOX
 
 class RINNBase(BaseModel):
     epoch: int
