@@ -1,8 +1,5 @@
-from database import Base
-from sqlalchemy import Column, Integer, String, JSON, Boolean, Float
-from database import Base
-
-### Reinforcement Inferencing Neural Network (RINN) training results
+# Base neural network prototype
+```python
 class RINN(Base):
     __tablename__ = 'training_results'
 
@@ -18,7 +15,6 @@ class RINN(Base):
         self.training_score = training_score
         self.training_output = training_output
 
-### Table for storing data retrieved from client
 class RINN_data(Base):
     __tablename__ = 'training_data'
 
@@ -27,3 +23,5 @@ class RINN_data(Base):
 
     def __init__(self, training_data):
         self.training_data = training_data
+```
+Takes in JSON data from roblox to reduce the amount of columns required to store data in database. Reduces complexity in database management.

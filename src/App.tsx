@@ -4,9 +4,9 @@ function App() {
 
   return (
     <>
-      <div>
-
-      </div>
+      <main>
+        <header>There's nothing to see here.<br/>Setting up a frontend for easier development later.</header>
+      </main>
     </>
   )
 }
