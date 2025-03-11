@@ -1,27 +1,18 @@
-# Base neural network prototype
+# State representation design/build
 ```python
-class RINN(Base):
-    __tablename__ = 'training_results'
+import torch
+import torch.nn as nn
 
-    id = Column(Integer, primary_key=True, index=True)
-    epoch = Column(Integer, primary_key=True, index=True)
-    strand = Column(Integer, index=True)
-    training_score = Column(Integer)
-    training_output = Column(JSON)
-
-    def __init(self, epoch, strand, training_score, training_output):
-        self.epoch = epoch
-        self.strand = strand
-        self.training_score = training_score
-        self.training_output = training_output
-
-class RINN_data(Base):
-    __tablename__ = 'training_data'
-
-    id = Column(Integer, primary_key=True, index=True)
-    training_data = Column(JSON)
-
-    def __init__(self, training_data):
-        self.training_data = training_data
+class DeepQNetwork(nn.module):
+    # Initialize NN object
+    def __init__:
+        super().__init__()
+        # Still planing what goes here
 ```
-Takes in JSON data from roblox to reduce the amount of columns required to store data in database. Reduces complexity in database management.
+> "A state in reinforcement learning is a representation of the current environment that the agent is in."
+
+Essentially, it is anything we want it to be. This is a crucial part of reinforcement learning and arguably the hardest aspect in building an efficient and effective model.
+
+It struggles from the curse of dimensionality, and faces the same problems we typically encounter with feature engineering in supervised learning.
+
+A large part of the project is designing multiple prototypes of the state and see which works best. For no particular reason besides extensive documentation, this project will be using Deep Q Learning (DQN).

@@ -1,16 +1,14 @@
-# Roblox HTTP Handler DEMO via Button
+# Roblox HTTP Request via Button
 ```lua
 HTTP = game:GetService("HttpService")
 SendHTTP = script.Parent:WaitForChild("SendHTTP")
 
-POST_DATA_API_ADDRESS = "http://localhost:8000/api/RINN_data"
-SEND_DATA = "RINN_data"
+POST_DATA_API_ADDRESS = "http://localhost:8000/api/data"
 
 local data = {
-	training_data = {
-		feature1 = 1,
-		feature2 = 2
-	}
+	state = nil
+	feature = nil
+	action = nil
 }
 
 local jsonData = HTTP:JSONEncode(data)
@@ -30,4 +28,6 @@ SendHTTP.MouseClick:Connect(function(player)
 	end
 end)
 ```
-Sends a HTTP request from Roblox to web server through a button click.
+Sends a HTTP request from Roblox to web server through a button click. This is as simple as it gets.
+
+As the project scales and ideally we want to maximize training, may systems design with a load balancer to manage connections between web server and agents.
