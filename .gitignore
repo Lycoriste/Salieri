@@ -13,6 +13,7 @@ dist-ssr
 *.local
 env
 .env
+.venv
 
 # Editor directories and files
 .vscode/*
@@ -24,3 +25,4 @@ env
 *.njsproj
 *.sln
 *.sw?
+.venv/lib/python3.9/site-packages/debugpy/_vendored/pydevd/_pydevd_frame_eval/pydevd_frame_evaluator.cpython-39-darwin.so
