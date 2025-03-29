@@ -5,12 +5,7 @@ from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-
-"""
-Migrated from using PostgreSQL relational DB -> MongoDB.
-Require new documentation + architecture.
-"""
-
+from spatial_nav_agent import RBX_Agent
 # Create a new client and connect to the server
 client = MongoClient("mongodb://localhost:27017", server_api=ServerApi('1'))
 
@@ -24,27 +19,35 @@ except Exception as e:
 db = client.get_database("RBX")
 collection = db['Test']
 
+"""
+
+    MongoDB not in use. Currently training locally.
+
+"""
+
+AGENT = RBX_Agent()
+
 # FastAPI app
 app = FastAPI()
 
 # Pydantic model for request data validation
 class RequestData(BaseModel):
-    test_data: dict
+    data: dict
 
 # GET
-@app.get("/api/")
+@app.get("/rl/action")
 async def root():
     return "FASTAPI-BACKEND-ROOT"
 
 # POST
-@app.post("/api/data")
+@app.post("/rl/state")
 async def receive_data(data: RequestData):
     try:
-        collection.insert_one(data.model_dump())
+        AGENT.train(data)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# Run Uvicorn
+# Run Uvicorn to start server
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="Lycoris", port=7777)

@@ -9,20 +9,22 @@ device = torch.device(
     "cpu"
 )
 
-# NOTE - Barebone structure for DQN
-class DQN(nn.Module):
-    def __init__(self, state_dim, action_dim):
-        super(DQN, self).__init__()
-        # Convolutional neural networks perform well for spatial navigation
-        self.sequence = nn.Sequential(
-                   nn.Conv2D(in_channels=1, out_channels=1, kernel_size=8, stride=4),
-                   nn.Relu(),
+# RNN to keep unobserved instances in memory
+class Spatial_DQN(nn.Module):
+    def __init__(self, state_dim, hidden_size, action_dim):
+         # Define two LSTM layers - recurrent neural networks (RNN)
+        self.lstm1 = nn.LSTM(state_dim, hidden_size, batch_first=True)
+        self.lstm2 = nn.LSTM(hidden_size, hidden_size, batch_first=True)
+        
+        # Define fully connected layers
+        self.fc1 = nn.Linear(hidden_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, action_dim)
 
-                ) 
+    def forward():
 
-    def forward(self, x):
-        return self.layer3(x)
+        return ...
 
+# DQN for an Atari Breakout Agent
 class Sample_DQN(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(DQN, self).__init__()
