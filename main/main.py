@@ -34,16 +34,43 @@ app = FastAPI()
 class RequestData(BaseModel):
     data: dict
 
-# GET
-@app.get("/rl/action")
+# GET - just for fun
+@app.get("/")
 async def root():
     return "FASTAPI-BACKEND-ROOT"
 
-# POST
-@app.post("/rl/state")
+# POST requests
+"""
+
+    Observe: receive state and returns an action from policy
+    Learn: receive next_state after taking action and updates policy
+
+"""
+@app.post("/rl/observe")
 async def receive_data(data: RequestData):
     try:
-        AGENT.train(data)
+        AGENT.observe(data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+@app.post("/rl/learn")
+async def receive_data(data: RequestData):
+    try:
+        AGENT.learn(data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/rl/save")
+async def save_policy():
+    try:
+        AGENT.save_policy()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/rl/visualize")
+async def visualize():
+    try:
+        AGENT.get_stats()
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -139,7 +139,7 @@ class RBX_Agent:
         loss.backward()
 
         # Gradient clipping - prevents them from exploding
-        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 100.0)
+        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 80.0)
         self.optimizer.step()
 
         # Soft updates
@@ -156,10 +156,10 @@ class RBX_Agent:
     # what the next state and reward was
     # 
     # Compared to the traditional paradigm which uses a gym env
-    # we need to break the train function into two functions
+    # we need to break the train function into two functions for async updates
     def observe(self, data):
         # We just want to observe the state here, we don't really care about reward
-        state, _, _ = data
+        state = data
         state_tensor = torch.tensor(state, dtype=torch.float32, device=device)
         state_tensor = state_tensor.unsqueeze(0)
         action_tensor = self.select_action(state_tensor)
@@ -184,6 +184,9 @@ class RBX_Agent:
         self.episode_reward[self.episodes_total] += reward
         self.episode_length[self.episodes_total] += 1
         self.steps += 1
+
+        if (done):
+            self.episodes_total += 1
 
         self.optimize_model()
     
