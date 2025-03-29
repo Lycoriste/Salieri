@@ -30,8 +30,3 @@ class GridWorldEnv(gym.Env):
             2: np.array([-1, 0]),  # left
             3: np.array([0, -1]),  # down
         }
-
-# NOTE: Custom Roblox environment
-class RBXEnv(gym.Env):
-    def __init__(self, size: int = 5):
-        self.size = size
