@@ -6,7 +6,7 @@ import numpy as np
 import math, random
 import os, sys, platform
 from collections import defaultdict
-from models import Spatial_DQN
+from models import Spatial_DQN, Multi_Head_QN
 from replay_memory import ReplayMemory, Transition
 import matplotlib.pyplot as plt
 
@@ -20,12 +20,11 @@ class RBX_Agent:
     # Define model with too many hyperparameters
     def __init__(self,
                  state_space: int,
-                 action_space: int,
                  batch_size = 128, 
                  gamma = 0.99, 
                  epsilon_start = 0.99, 
-                 epsilon_end = 0.01, 
-                 epsilon_decay = 1000, 
+                 epsilon_end = 0.1, 
+                 epsilon_decay = 500, 
                  tau = 0.005, 
                  alpha = 1e-4):
 
@@ -42,14 +41,11 @@ class RBX_Agent:
         self.episode_reward = defaultdict(int)
         self.episode_length = defaultdict(int)
         self.episodes_total = 0
-
-        # NOTE: Not necessarily batch_size * 1000 - it's just what worked for me
-        # We use experience replay to stabilize training through random sampling
-        self.memory = ReplayMemory(batch_size * 1000)
+        self.memory = ReplayMemory(batch_size * 100)
 
         # Policy NN + Target NN
-        self.policy_net = Spatial_DQN(state_space, action_space)
-        self.target_net = Spatial_DQN(state_space, action_space)
+        self.policy_net = Multi_Head_QN(state_space)
+        self.target_net = Multi_Head_QN(state_space)
 
         # Set them to start with the same random weights + biases
         self.target_net.load_state_dict(self.policy_net.state_dict())
@@ -61,55 +57,43 @@ class RBX_Agent:
         self.state = None
         self.action = None
 
+    def load_policy(self, episode_num: int = 0):
+        try:
+            self.policy_net.load_state_dict(torch.load(f"save/{episode_num}_Policy_RBX.pth", map_location=device))
+            self.target_net.load_state_dict(torch.load(f"save/{episode_num}_Target_RBX.pth", map_location=device))
+            self.optimizer.load_state_dict(torch.load(f"save/{episode_num}_Optim_RBX.pth", map_location=device))
+            self.policy_net.to(device)
+            self.target_net.to(device)
+
+            print("Loaded successfully.")
+        except FileNotFoundError as e:
+            print(f"No save files found.")
+
     # Epsilon-greedy action selection with a decaying epsilon as steps -> infinity
     def select_action(self, state):
-        # Epsilon Threshold: Early in training -> prioritize exploring | Later in training -> exploit more
+        # -------------------------------------------------------- #
+        # Action space (n = 2)                                     #
+        # Moving = 0, 1 (false/true)                               #
+        # Steering = -1, 0, 1 (turn left, no turn, turn right)     #
+        # -------------------------------------------------------- #
         eps_threshold = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * \
                         math.exp(-1.0 * self.steps / self.epsilon_decay)
         self.steps += 1
-        # If random number (0, 1) less than eps_threshold then we explore, else we exploit
-        # In the long run, we will be exploring with P(epsilon_end)
+
         if random.random() < eps_threshold:
-            # Explore: we choose a random action from the action space
-            # You need to know your action space for this one
-            # -------------------------------------------------------- #
-            # Action space (n = 2)                                     #
-	        # Moving = 0, 1 (false/true)                               #
-            # Steering = -1, 0, 1 (turn left, no turn, turn right)     #
-            # -------------------------------------------------------- #
+            # Exploration
+            move_action = random.randint(0, 1)
+            turn_action = random.randint(0, 2)
 
-            # Define the discrete action space
-            action = np.random.choice(np.arange(0, 6))
-
-            return torch.tensor([action], device=device, dtype=torch.long)
+            return torch.tensor([move_action, turn_action], device=device, dtype=torch.long)
         else:
-            # Exploit: we choose the best action at the state
+            # Exploitation
             with torch.inference_mode(): 
-                return self.policy_net(state).max(1).indices.view(1, 1)
+                move_q, steer_q = self.policy_net(state)
+                move_action = move_q.argmax(dim=1).item()
+                steer_action = steer_q.argmax(dim=1).item()
 
-    def decode_action(self, action):
-        map = {
-                0: [0, 0],
-                1: [0, -1],
-                2: [0, 1],
-                3: [1, 0],
-                4: [1, -1],
-                5: [1, 1]
-              }
-        
-        return map[action]
-
-    def encode_action(self, action):
-        action = tuple(action)
-        map = {
-                (0, 0): 0,
-                (0, -1): 1,
-                (0, 1): 2,
-                (1, 0): 3,
-                (1, -1): 4,
-                (1, 1): 5
-              }
-        return map[action]
+                return torch.tensor([move_action, steer_action], device=device)
             
     # Optimize agent's neural network
     def optimize_model(self):
@@ -133,21 +117,36 @@ class RBX_Agent:
         next_state_batch = torch.cat([s for s in batch.next_state if s is not None])
 
         # Get actions from states along the action vector
-        action_value = self.policy_net(state_batch).gather(1, action_batch)
+        action_move = action_batch[:, 0].unsqueeze(1)
+        action_steer = action_batch[:, 1].unsqueeze(1)
+        q_move, q_steer = self.policy_net(state_batch)
+
+        q_move_selected = q_move.gather(1, action_move)
+        q_steer_selected = q_steer.gather(1, action_steer)
+        q_total = q_move_selected + q_steer_selected
 
         # Q(s', a') for all next_states that are not None
         next_state_values = torch.zeros(self.batch_size, device=device)
         with torch.inference_mode():
-            # Double DQN -> Q_t(s', argmax Q_p(s', a'))
-            # Currently standard DQN
-            next_state_values[next_state_mask] = self.target_net(next_state_batch).max(1).values # gather(1, self.policy_net(next_state_batch).argmax(1, keepdim=True)).squeeze(1)
+            target_move_q, target_steer_q = self.target_net(next_state_batch)
+            policy_move_q, policy_steer_q = self.policy_net(next_state_batch)
+
+            # Use policy net to select actions
+            next_move_action = policy_move_q.argmax(1, keepdim=True)
+            next_steer_action = policy_steer_q.argmax(1, keepdim=True)
+
+            # Use target net to evaluate those actions
+            next_move_q_val = target_move_q.gather(1, next_move_action)
+            next_steer_q_val = target_steer_q.gather(1, next_steer_action)
+
+            next_state_values[next_state_mask] = (next_move_q_val + next_steer_q_val).squeeze(1)
         
         # If the next_state is None, then the Q(s', a') term evaluates to 0
         expected_action_value = next_state_values * self.gamma + reward_batch
 
         # Huber loss
         loss_fn = nn.SmoothL1Loss()
-        loss = loss_fn(action_value, expected_action_value.unsqueeze(1))
+        loss = loss_fn(q_total, expected_action_value.unsqueeze(1))
 
         # Clear gradients
         self.optimizer.zero_grad()
@@ -165,17 +164,15 @@ class RBX_Agent:
         
         self.target_net.load_state_dict(target_net_state_dict)
 
-    # We observe a state then we decide what action to take
-    # and then we WAIT for the agent to ask us what action to take
-    # we tell it what to take and WAIT for it to report back to us
-    # what the next state and reward was
+    # Observe state and decide optimal action
     def observe(self, data):
-        # We just want to observe the state here, we don't really care about reward
         state = data
         state_tensor = torch.tensor(state, dtype=torch.float32, device=device)
         state_tensor = state_tensor.unsqueeze(0)
         action_tensor = self.select_action(state_tensor)
         action = action_tensor.tolist()
+
+        action_tensor = action_tensor.unsqueeze(0)
 
         self.state = state_tensor
         self.action = action_tensor
@@ -191,7 +188,8 @@ class RBX_Agent:
         reward_tensor = torch.tensor([reward], device=device)
 
         state_tensor, action_tensor = self.state, self.action
-        self.memory.push(state_tensor, action_tensor, next_state_tensor, reward_tensor, done)
+        if state_tensor is not None and next_state is not None:
+            self.memory.push(state_tensor, action_tensor, next_state_tensor, reward_tensor, done)
 
         self.episode_reward[self.episodes_total] += reward
         self.episode_length[self.episodes_total] += 1
@@ -206,9 +204,11 @@ class RBX_Agent:
         return self.policy_net, self.target_net
     
     def save_policy(self):
+        print("Saving...")
         torch.save(self.policy_net.state_dict(), f"save/{self.episodes_total}_Policy_RBX.pth")
         torch.save(self.target_net.state_dict(), f"save/{self.episodes_total}_Target_RBX.pth")
         torch.save(self.optimizer.state_dict(), f"save/{self.episodes_total}_Optim_RBX.pth")
     
     def get_stats(self):
         print(f"Steps taken: {self.steps}\nEpisodes trained: {self.episodes_total}")
+        return self.steps, self.episode_reward, self.episodes_total

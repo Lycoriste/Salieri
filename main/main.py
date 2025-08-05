@@ -1,12 +1,13 @@
-import os
+import os, io
+import matplotlib.pyplot as plt
 # from requests.utils import quote
 # from dotenv import load_dotenv
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from main.agent import RBX_Agent
+from agent import RBX_Agent
 import logging
 import traceback
 
@@ -16,26 +17,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-## Create a new client and connect to the server
-# client = MongoClient("mongodb://localhost:27017", server_api=ServerApi('1'))
-
-# Send a ping to confirm a successful connection
-# try:
-#    client.admin.command('ping')
-#    print("Pinged your deployment. You successfully connected to MongoDB!")
-# except Exception as e:
-#    print(e)
-
-# db = client.get_database("RBX")
-# collection = db['Test']
-
-"""
-
-    MongoDB not in use. Currently training locally.
-
-"""
-
-AGENT = RBX_Agent(state_space=4, action_space=6)
+AGENT = RBX_Agent(state_space=6, epsilon_start=0.9, epsilon_decay=100, epsilon_end=0.01)
+AGENT.load_policy(episode_num=61)
 
 # FastAPI app
 app = FastAPI()
@@ -86,10 +69,62 @@ async def save_policy():
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/util/visual")
-async def visualize():
+@app.get("/util/save")
+async def save_policy_get():
     try:
-        AGENT.get_stats()
+        AGENT.save_policy()
+        return {"detail": "Policy saved via GET (for testing)"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/util/stats")
+async def stats():
+    try:
+        return AGENT.get_stats()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+@app.get("/util/plot_reward")
+async def plot_reward():
+    try:
+        plt.figure(figsize=(10,5))
+        episodes = list(range(AGENT.episodes_total))
+        rewards = [AGENT.episode_reward[i] for i in episodes]
+        plt.plot(episodes, rewards, label="Reward")
+        plt.xlabel("Episode")
+        plt.ylabel("Reward")
+        plt.title("Training Progress")
+        plt.legend()
+        plt.grid(True)
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        plt.close()
+        buf.seek(0)
+
+        return Response(content=buf.getvalue(), media_type="image/png")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/util/plot_length")
+async def plot_length():
+    try:
+        plt.figure(figsize=(10,5))
+        episodes = list(range(AGENT.episodes_total))
+        length = [AGENT.episode_length[i] for i in episodes]
+        plt.plot(episodes, length, label="Episode Length")
+        plt.xlabel("Episode")
+        plt.ylabel("Episode Length")
+        plt.title("Training Progress")
+        plt.legend()
+        plt.grid(True)
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        plt.close()
+        buf.seek(0)
+
+        return Response(content=buf.getvalue(), media_type="image/png")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -97,4 +132,4 @@ async def visualize():
 if __name__ == "__main__":
     import uvicorn
     print("Server started!")
-    uvicorn.run(app, host="0.0.0.0", port=0000)
+    uvicorn.run(app, host="0.0.0.0", port=7777)
