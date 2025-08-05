@@ -79,21 +79,37 @@ class RBX_Agent:
             # -------------------------------------------------------- #
 
             # Define the discrete action space
-            ACTIONS = [
-                (0, -1),  # No move, turn left
-                (0, 0),   # No move, no turn
-                (0, 1),   # No move, turn right
-                (1, -1),  # Move, turn left
-                (1, 0),   # Move, no turn
-                (1, 1)    # Move, turn right
-            ]
+            action = np.random.choice(np.arange(0, 6))
 
-            action = np.random.choice(ACTIONS)
-            return torch.tensor([[action]], device=device, dtype=torch.long)
+            return torch.tensor([action], device=device, dtype=torch.long)
         else:
             # Exploit: we choose the best action at the state
             with torch.inference_mode(): 
                 return self.policy_net(state).max(1).indices.view(1, 1)
+
+    def decode_action(self, action):
+        map = {
+                0: [0, 0],
+                1: [0, -1],
+                2: [0, 1],
+                3: [1, 0],
+                4: [1, -1],
+                5: [1, 1]
+              }
+        
+        return map[action]
+
+    def encode_action(self, action):
+        action = tuple(action)
+        map = {
+                (0, 0): 0,
+                (0, -1): 1,
+                (0, 1): 2,
+                (1, 0): 3,
+                (1, -1): 4,
+                (1, 1): 5
+              }
+        return map[action]
             
     # Optimize agent's neural network
     def optimize_model(self):
@@ -123,18 +139,17 @@ class RBX_Agent:
         next_state_values = torch.zeros(self.batch_size, device=device)
         with torch.inference_mode():
             # Double DQN -> Q_t(s', argmax Q_p(s', a'))
+            # Currently standard DQN
             next_state_values[next_state_mask] = self.target_net(next_state_batch).max(1).values # gather(1, self.policy_net(next_state_batch).argmax(1, keepdim=True)).squeeze(1)
         
         # If the next_state is None, then the Q(s', a') term evaluates to 0
         expected_action_value = next_state_values * self.gamma + reward_batch
 
-        # Loss function for DQN -> L(s) = MSE
-        # We use the Huber loss here as it is less sensitive to outliers
+        # Huber loss
         loss_fn = nn.SmoothL1Loss()
         loss = loss_fn(action_value, expected_action_value.unsqueeze(1))
 
-
-        # Clear all gradients
+        # Clear gradients
         self.optimizer.zero_grad()
         loss.backward()
 
@@ -154,16 +169,13 @@ class RBX_Agent:
     # and then we WAIT for the agent to ask us what action to take
     # we tell it what to take and WAIT for it to report back to us
     # what the next state and reward was
-    # 
-    # Compared to the traditional paradigm which uses a gym env
-    # we need to break the train function into two functions for async updates
     def observe(self, data):
         # We just want to observe the state here, we don't really care about reward
         state = data
         state_tensor = torch.tensor(state, dtype=torch.float32, device=device)
         state_tensor = state_tensor.unsqueeze(0)
         action_tensor = self.select_action(state_tensor)
-        action = action_tensor.item()
+        action = action_tensor.tolist()
 
         self.state = state_tensor
         self.action = action_tensor
@@ -175,7 +187,7 @@ class RBX_Agent:
         next_state, reward, done = data
 
         next_state_tensor = torch.tensor(next_state, dtype=torch.float32, device=device) 
-        next_state_tensor = next_state_tensor.permute(2, 0 ,1).unsqueeze(0)
+        next_state_tensor = next_state_tensor.unsqueeze(0)
         reward_tensor = torch.tensor([reward], device=device)
 
         state_tensor, action_tensor = self.state, self.action
