@@ -1,13 +1,9 @@
 import os, io
 import matplotlib.pyplot as plt
-# from requests.utils import quote
-# from dotenv import load_dotenv
-from pymongo.mongo_client import MongoClient
-from pymongo.server_api import ServerApi
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from main.double_dqn import Double_DQN
+from double_dqn import Double_DQN
 import logging
 import traceback
 
@@ -18,7 +14,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 AGENT = Double_DQN(state_space=10, epsilon_decay=1000, epsilon_end=0.15)
-AGENT.load_policy(episode_num=8)
+AGENT.load_policy(episode_num=23)
 
 # FastAPI app
 app = FastAPI()

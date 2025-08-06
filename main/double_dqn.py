@@ -6,7 +6,7 @@ import numpy as np
 import math, random
 import os, sys, platform
 from collections import defaultdict
-from models import Spatial_DQN, Multi_Head_QN
+from network import Multi_Head_QN
 from replay_memory import ReplayMemory, Transition
 import matplotlib.pyplot as plt
 
@@ -98,7 +98,7 @@ class Double_DQN:
     # Optimize agent's neural network
     def optimize_model(self):
         # Can't optimize model when replay memory is not filled
-        if (len(self.memory) / 2 < self.batch_size):
+        if (len(self.memory) < self.batch_size):
             return
         # Sample transitions from replay memory
         transitions = self.memory.sample(self.batch_size)
@@ -160,7 +160,7 @@ class Double_DQN:
         target_net_state_dict = self.target_net.state_dict()
         policy_net_state_dict = self.policy_net.state_dict()
         for key in policy_net_state_dict:
-            target_net_state_dict[key] = policy_net_state_dict[key]*self.tau + target_net_state_dict[key]*(1 - self.tau)
+            target_net_state_dict[key] = policy_net_state_dict[key] * self.tau + target_net_state_dict[key] * (1 - self.tau)
         
         self.target_net.load_state_dict(target_net_state_dict)
 

@@ -2,8 +2,8 @@ Salieri
 =======
 
 TODO
+- Priority experience replay
 - Advantage actor-critic
 - Proximal policy optimization
-- Soft actor-critic
-- Priority experience replay
 - Custom gym environments
+- Soft actor-critic
