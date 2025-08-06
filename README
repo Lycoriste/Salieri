@@ -1,1 +1,9 @@
-super duper
+Salieri
+=======
+
+TODO
+- Advantage actor-critic
+- Proximal policy optimization
+- Soft actor-critic
+- Priority experience replay
+- Custom gym environments

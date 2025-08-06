@@ -25,18 +25,57 @@ class Spatial_DQN(nn.Module):
 class Multi_Head_QN(nn.Module):
     def __init__(self, state_dim):
         super().__init__()
-        # Shared feature extractor
-        self.shared_fc = nn.Sequential(
-            nn.Linear(state_dim, 256),
+
+        # Process agent and target positions separately
+        self.agent_pos_fc = nn.Sequential(
+            nn.Linear(3, 32),  # x, y, z
             nn.ReLU(),
-            nn.Linear(256, 128),
+            nn.Linear(32, 32),
             nn.ReLU()
         )
-        # Separate heads for each action component
-        self.move_head = nn.Linear(128, 2)
-        self.turn_head = nn.Linear(128, 3)
+        self.target_pos_fc = nn.Sequential(
+            nn.Linear(3, 32),  # target x, y, z
+            nn.ReLU(),
+            nn.Linear(32, 32),
+            nn.ReLU()
+        )
 
-    def forward(self, x):
+        # Process angle and distance features (yaw, dist_to_target, dist_to_object)
+        self.aux_features_fc = nn.Sequential(
+            nn.Linear(4, 32),
+            nn.ReLU(),
+            nn.Linear(32, 32),
+            nn.ReLU()
+        )
+
+        # Shared deeper feature extractor
+        self.shared_fc = nn.Sequential(
+            nn.Linear(32 + 32 + 32, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, 128),
+            nn.ReLU()
+        )
+
+        # Separate heads for action components
+        self.move_head = nn.Linear(128, 2)   # Move: forward / no-move
+        self.turn_head = nn.Linear(128, 37)   # Turn: left / right / none
+
+    def forward(self, state):
+        agent_pos = state[:, 0:3]           # x, y, z
+        aux_features = state[:, 3:7]        # yaw_sin, yaw_cos, dist_to_target, dist_to_object
+        target_pos = state[:, 7:10]          # target x, y, z 
+
+        # Feature extractors
+        agent_feat = self.agent_pos_fc(agent_pos)
+        target_feat = self.target_pos_fc(target_pos)
+        aux_feat = self.aux_features_fc(aux_features)
+
+        # Concatenate features
+        x = torch.cat([agent_feat, target_feat, aux_feat], dim=1)
+
+        # Shared layers
         x = self.shared_fc(x)
         move_q = self.move_head(x)
         turn_q = self.turn_head(x)

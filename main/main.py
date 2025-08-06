@@ -7,7 +7,7 @@ from pymongo.server_api import ServerApi
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from agent import RBX_Agent
+from main.double_dqn import Double_DQN
 import logging
 import traceback
 
@@ -17,8 +17,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-AGENT = RBX_Agent(state_space=6, epsilon_start=0.9, epsilon_decay=100, epsilon_end=0.01)
-AGENT.load_policy(episode_num=61)
+AGENT = Double_DQN(state_space=10, epsilon_decay=1000, epsilon_end=0.15)
+AGENT.load_policy(episode_num=8)
 
 # FastAPI app
 app = FastAPI()

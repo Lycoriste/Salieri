@@ -16,15 +16,15 @@ device = torch.device(
     "cpu"
 )
 
-class RBX_Agent:
+class Double_DQN:
     # Define model with too many hyperparameters
     def __init__(self,
                  state_space: int,
                  batch_size = 128, 
-                 gamma = 0.99, 
+                 gamma = 0.997, 
                  epsilon_start = 0.99, 
                  epsilon_end = 0.1, 
-                 epsilon_decay = 500, 
+                 epsilon_decay = 1000, 
                  tau = 0.005, 
                  alpha = 1e-4):
 
@@ -41,7 +41,7 @@ class RBX_Agent:
         self.episode_reward = defaultdict(int)
         self.episode_length = defaultdict(int)
         self.episodes_total = 0
-        self.memory = ReplayMemory(batch_size * 100)
+        self.memory = ReplayMemory(batch_size * 20)
 
         # Policy NN + Target NN
         self.policy_net = Multi_Head_QN(state_space)
@@ -74,7 +74,7 @@ class RBX_Agent:
         # -------------------------------------------------------- #
         # Action space (n = 2)                                     #
         # Moving = 0, 1 (false/true)                               #
-        # Steering = -1, 0, 1 (turn left, no turn, turn right)     #
+        # Steering = [-90,0,90] (turn left, no turn, turn right)     #
         # -------------------------------------------------------- #
         eps_threshold = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * \
                         math.exp(-1.0 * self.steps / self.epsilon_decay)
@@ -83,7 +83,7 @@ class RBX_Agent:
         if random.random() < eps_threshold:
             # Exploration
             move_action = random.randint(0, 1)
-            turn_action = random.randint(0, 2)
+            turn_action = random.randint(0, 36)
 
             return torch.tensor([move_action, turn_action], device=device, dtype=torch.long)
         else:
@@ -98,7 +98,7 @@ class RBX_Agent:
     # Optimize agent's neural network
     def optimize_model(self):
         # Can't optimize model when replay memory is not filled
-        if (len(self.memory) < self.batch_size):
+        if (len(self.memory) / 2 < self.batch_size):
             return
         # Sample transitions from replay memory
         transitions = self.memory.sample(self.batch_size)
@@ -204,10 +204,9 @@ class RBX_Agent:
         return self.policy_net, self.target_net
     
     def save_policy(self):
-        print("Saving...")
-        torch.save(self.policy_net.state_dict(), f"save/{self.episodes_total}_Policy_RBX.pth")
-        torch.save(self.target_net.state_dict(), f"save/{self.episodes_total}_Target_RBX.pth")
-        torch.save(self.optimizer.state_dict(), f"save/{self.episodes_total}_Optim_RBX.pth")
+        torch.save(self.policy_net.state_dict(), f"save/double_dqn/{self.episodes_total}_Policy_RBX.pth")
+        torch.save(self.target_net.state_dict(), f"save/double_dqn/{self.episodes_total}_Target_RBX.pth")
+        torch.save(self.optimizer.state_dict(), f"save/double_dqn/{self.episodes_total}_Optim_RBX.pth")
     
     def get_stats(self):
         print(f"Steps taken: {self.steps}\nEpisodes trained: {self.episodes_total}")
