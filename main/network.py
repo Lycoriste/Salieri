@@ -81,3 +81,74 @@ class Multi_Head_QN(nn.Module):
         turn_q = self.turn_head(x)
 
         return move_q, turn_q
+
+class MultiHead_A2C(nn.Module):
+    def __init__(self, state_dim, action_dim):
+        super().__init__()
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+
+        # Process agent and target positions separately
+        self.agent_pos_fc = nn.Sequential(
+            nn.Linear(3, 32),  # x, y, z
+            nn.ReLU(),
+            nn.Linear(32, 32),
+            nn.ReLU()
+        )
+        self.target_pos_fc = nn.Sequential(
+            nn.Linear(3, 32),  # target x, y, z
+            nn.ReLU(),
+            nn.Linear(32, 32),
+            nn.ReLU()
+        )
+
+        # Process angle and distance features (yaw_cos, yaw_sin, dist_to_target)
+        self.aux_features_fc = nn.Sequential(
+            nn.Linear(2, 32),
+            nn.ReLU(),
+            nn.Linear(32, 32),
+            nn.ReLU()
+        )
+
+        # Shared deeper feature extractor
+        self.shared_fc = nn.Sequential(
+            nn.Linear(32 + 32 + 32, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, 128),
+            nn.ReLU()
+        )
+
+        # Discrete actor head for movement
+        self.move_logit = nn.Linear(128, 1)
+
+        # Continuous actor head for steering
+        self.turn_mu = nn.Linear(128, 1)
+        self.turn_log_std = nn.Parameter(torch.zeros(1))
+
+        # Critic
+        self.value = nn.Linear(128, 1)
+
+    def forward(self, state):
+        # Split and process features
+        agent_pos = state[:, 0:3]
+        aux_features = state[:, 3:6]
+        target_pos = state[:, 6:9]
+
+        agent_feat = self.agent_pos_fc(agent_pos)
+        target_feat = self.target_pos_fc(target_pos)
+        aux_feat = self.aux_features_fc(aux_features)
+
+        x = torch.cat([agent_feat, target_feat, aux_feat], dim=1)
+        x = self.shared_fc(x)
+
+        # Actor outputs
+        move_logit = self.move_logit(x)
+        turn_mu = torch.tanh(self.turn_mu(x))
+        turn_std = torch.exp(self.turn_log_std)
+
+        # Critic output
+        value = self.value(x)
+
+        return move_logit, turn_mu, turn_std, value

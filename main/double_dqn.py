@@ -78,14 +78,13 @@ class Double_DQN:
         # -------------------------------------------------------- #
         eps_threshold = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * \
                         math.exp(-1.0 * self.steps / self.epsilon_decay)
-        self.steps += 1
 
         if random.random() < eps_threshold:
             # Exploration
             move_action = random.randint(0, 1)
-            turn_action = random.randint(0, 36)
+            steer_action = random.randint(0, 36)
 
-            return torch.tensor([move_action, turn_action], device=device, dtype=torch.long)
+            return torch.tensor([move_action, steer_action], device=device, dtype=torch.long)
         else:
             # Exploitation
             with torch.inference_mode(): 
@@ -171,7 +170,6 @@ class Double_DQN:
         state_tensor = state_tensor.unsqueeze(0)
         action_tensor = self.select_action(state_tensor)
         action = action_tensor.tolist()
-
         action_tensor = action_tensor.unsqueeze(0)
 
         self.state = state_tensor

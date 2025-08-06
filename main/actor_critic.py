@@ -27,7 +27,7 @@ class ActorCritic:
                  epsilon_end: float = 0.1, 
                  epsilon_decay: float = 1000.0, 
                  tau: float = 0.005, 
-                 alpha: float = 1e-4):
+                 alpha: float = 1e-3):
 
         self.n_step = n_step
         self.gamma = gamma
@@ -73,10 +73,17 @@ class ActorCritic:
         except FileNotFoundError as e:
             print(f"No save files found.")
 
-    # Epsilon-greedy action selection with a decaying epsilon as steps -> infinity
     def select_action(self, state):
-        ...
-    
+        # Exploitation
+        with torch.inference_mode(): 
+            move_logit, turn_mu, turn_std, _ = self.policy_net(state)
+            move_prob = torch.sigmoid(move_logit)
+            move_action = torch.bernoulli(move_prob)
+            
+            turn_dist = torch.distributions.Normal(turn_mu, turn_std)
+            turn_action = turn_dist.sample()
+            return torch.tensor([move_action, turn_action], device=device)
+
     # Optimize agent's neural network
     def optimize_model(self):
         ...
@@ -88,7 +95,6 @@ class ActorCritic:
         state_tensor = state_tensor.unsqueeze(0)
         action_tensor = self.select_action(state_tensor)
         action = action_tensor.tolist()
-
         action_tensor = action_tensor.unsqueeze(0)
 
         self.state = state_tensor
@@ -111,11 +117,14 @@ class ActorCritic:
         self.episode_reward[self.episodes_total] += reward
         self.episode_length[self.episodes_total] += 1
         self.steps += 1
+        self.ptr += 1
 
         if (done):
             self.episodes_total += 1
 
-        self.optimize_model()
+        if (self.n_step % self.ptr == 0):
+            self.optimize_model()
+            self.ptr = 0
 
     def store_transition(self, state, action, reward, done, logp, value):
         self.state_buf[self.ptr].copy_(state)
