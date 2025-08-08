@@ -7,7 +7,6 @@ import math, random
 import os, sys, platform
 from collections import defaultdict
 from network import Multi_Head_QN
-from replay_memory import PrioritizedReplayMemory, Transition
 import matplotlib.pyplot as plt
 
 device = torch.device(
@@ -76,13 +75,13 @@ class ActorCritic:
     def select_action(self, state):
         # Exploitation
         with torch.inference_mode(): 
-            move_logit, turn_mu, turn_std, _ = self.policy_net(state)
+            move_logit, turn_mu, turn_std, critic_val = self.policy_net(state)
             move_prob = torch.sigmoid(move_logit)
             move_action = torch.bernoulli(move_prob)
             
             turn_dist = torch.distributions.Normal(turn_mu, turn_std)
             turn_action = turn_dist.sample()
-            return torch.tensor([move_action, turn_action], device=device)
+            return torch.tensor([move_action, turn_action], device=device), critic_val
 
     # Optimize agent's neural network
     def optimize_model(self):
@@ -93,12 +92,13 @@ class ActorCritic:
         state = data
         state_tensor = torch.tensor(state, dtype=torch.float32, device=device)
         state_tensor = state_tensor.unsqueeze(0)
-        action_tensor = self.select_action(state_tensor)
+        action_tensor, critic_value = self.select_action(state_tensor)
         action = action_tensor.tolist()
         action_tensor = action_tensor.unsqueeze(0)
 
-        self.state = state_tensor
-        self.action = action_tensor
+        self.state_buf[self.ptr] = state_tensor
+        self.action_buf[self.ptr] = action_tensor
+        self.val_buf[self.ptr] = critic_value
 
         return action
     
@@ -106,13 +106,12 @@ class ActorCritic:
     def learn(self, data):
         next_state, reward, done = data
 
-        next_state_tensor = torch.tensor(next_state, dtype=torch.float32, device=device) 
-        next_state_tensor = next_state_tensor.unsqueeze(0)
+        # next_state_tensor = torch.tensor(next_state, dtype=torch.float32, device=device) 
+        # next_state_tensor = next_state_tensor.unsqueeze(0)
         reward_tensor = torch.tensor([reward], device=device)
 
-        state_tensor, action_tensor = self.state, self.action
-        if state_tensor is not None and next_state is not None:
-            self.memory.push(state_tensor, action_tensor, next_state_tensor, reward_tensor, done)
+        self.done_buf[self.ptr] = done
+        self.reward_buf[self.ptr] = reward_tensor
 
         self.episode_reward[self.episodes_total] += reward
         self.episode_length[self.episodes_total] += 1
@@ -125,22 +124,17 @@ class ActorCritic:
         if (self.n_step % self.ptr == 0):
             self.optimize_model()
             self.ptr = 0
-
-    def store_transition(self, state, action, reward, done, logp, value):
-        self.state_buf[self.ptr].copy_(state)
-        self.action_buf[self.ptr].copy_(action)
-        self.reward_buf[self.ptr].copy_(reward)
-        self.done_buf[self.ptr].copy_(done)
-        self.logp_buf[self.ptr].copy_(logp)
-        self.val_buf[self.ptr].copy_(value)
-        self.ptr += 1
     
     def get_policy(self):
         return self.actor_net
     
     def save_policy(self):
-        torch.save(self.actor_net.state_dict(), f"save/double_dqn/{self.episodes_total}_Policy_RBX.pth")
-        torch.save(self.optimizer.state_dict(), f"save/double_dqn/{self.episodes_total}_Optim_RBX.pth")
+        torch.save(self.actor_net.state_dict(), f"save/a2c/{self.episodes_total}_Policy_RBX.pth")
+        torch.save(self.optimizer.state_dict(), f"save/a2c/{self.episodes_total}_Optim_RBX.pth")
+
+        with open("save/a2c/metadata", 'w') as f:
+            f.write(f"steps,episode_length,episode_reward,episodes_total\n")
+            f.write(f"{self.steps},{self.episode_length},{self.episode_reward},{self.episodes_total}")
     
     def get_stats(self):
         print(f"Steps taken: {self.steps}\nEpisodes trained: {self.episodes_total}")
