@@ -6,8 +6,9 @@ import numpy as np
 import math, random
 import os, sys, platform
 from collections import defaultdict
-from network import Multi_Head_QN
+from network import MultiHead_A2C
 import matplotlib.pyplot as plt
+import json
 
 device = torch.device(
     "cuda" if torch.cuda.is_available() else
@@ -17,10 +18,8 @@ device = torch.device(
 
 class ActorCritic:
     def __init__(self,
-                 state_space: tuple,
-                 action_space: tuple,
+                 state_dim: int,
                  n_step: int = 5,
-                 n_envs: int = 1,
                  gamma: float = 0.997, 
                  epsilon_start: float = 0.99, 
                  epsilon_end: float = 0.1, 
@@ -43,20 +42,19 @@ class ActorCritic:
         self.episodes_total = 0
 
         # Policy NN
-        self.actor_net = Multi_Head_QN(state_space)
+        action_dim = 2
+        self.actor_net = MultiHead_A2C(state_dim, action_dim)
 
         # Adam or SGD - whichever stabilizes
         self.optimizer = optim.Adam(self.actor_net.parameters(), lr=self.alpha)
         
         self.ptr = 0
-        self.state_buf = torch.zeros((n_step, n_envs, *state_space))
-        self.action_buf = torch.zeros((n_step, n_envs, *action_space))
-        self.reward_buf = torch.zeros((n_step, n_envs))
-        self.done_buf = torch.zeros((n_step, n_envs))
-        # For values (critic output)
-        self.val_buf = torch.zeros((n_step, n_envs))
-        # For log probs (actor output)
-        self.logp_buf = torch.zeros((n_step, n_envs))
+        self.state_buf = torch.zeros((n_step, state_dim), dtype=torch.float32, device=device)
+        self.action_buf = torch.zeros((n_step, action_dim), dtype=torch.float32, device=device)
+        self.reward_buf = torch.zeros((n_step,), dtype=torch.float32, device=device)
+        self.done_buf = torch.zeros((n_step,), dtype=torch.float32, device=device)
+        self.val_buf = torch.zeros((n_step,), dtype=torch.float32, device=device)
+        self.logp_buf = torch.zeros((n_step,), dtype=torch.float32, device=device)
         
         # Current state
         self.state = None
@@ -72,58 +70,123 @@ class ActorCritic:
         except FileNotFoundError as e:
             print(f"No save files found.")
 
+    def load_metadata_json(self, path: str = "save/a2c/metadata.json"):
+        with open(path, 'r') as f:
+            metadata = json.load(f)
+
+        self.steps = metadata['steps']
+        self.episode_length = defaultdict(int, metadata['episode_length'])
+        self.episode_reward = defaultdict(int, metadata['episode_reward'])
+        self.episodes_total = metadata['episodes_total']
+
+        return metadata
+
     def select_action(self, state):
         # Exploitation
         with torch.inference_mode(): 
-            move_logit, turn_mu, turn_std, critic_val = self.policy_net(state)
-            move_prob = torch.sigmoid(move_logit)
-            move_action = torch.bernoulli(move_prob)
+            move_logit, turn_mu, turn_std, critic_val = self.actor_net(state)
+            move_prob = torch.sigmoid(move_logit).squeeze()
+            move_action = torch.bernoulli(move_prob).float()
             
-            turn_dist = torch.distributions.Normal(turn_mu, turn_std)
+            turn_dist = torch.distributions.Normal(turn_mu.squeeze(), turn_std.squeeze())
             turn_action = turn_dist.sample()
-            return torch.tensor([move_action, turn_action], device=device), critic_val
+
+            max_turn = math.pi / 2  # 90 degrees in radians
+            turn_action = torch.clamp(turn_action, -max_turn, max_turn)
+
+            eps = 1e-8
+            move_logp = (move_action * torch.log(move_prob + eps) + (1 - move_action) * torch.log(1 - move_prob + eps))
+            turn_logp = turn_dist.log_prob(turn_action).sum(dim=-1)
+            logp = move_logp + turn_logp
+
+            critic_val = critic_val.squeeze().detach()
+            action = torch.stack([move_action, turn_action]).to(device).squeeze()
+
+            return action, critic_val, logp
 
     # Optimize agent's neural network
     def optimize_model(self):
-        ...
-    
+        if self.ptr == 0:
+            return
+            
+        states = self.state_buf[:self.ptr]
+        actions = self.action_buf[:self.ptr]
+        rewards = self.reward_buf[:self.ptr]
+        dones = self.done_buf[:self.ptr]
+
+        move_logit, turn_mu, turn_std, values = self.actor_net(states)
+        move_prob = torch.sigmoid(move_logit).squeeze(-1)
+        move_actions = actions[:, 0]
+        turn_actions = actions[:, 1]
+        
+        eps = 1e-8
+        move_logp = move_actions * torch.log(move_prob + eps) + (1 - move_actions) * torch.log(1 - move_prob + eps)
+        turn_std = turn_std.expand_as(turn_mu).squeeze(-1)
+        turn_dist = torch.distributions.Normal(turn_mu.squeeze(-1), turn_std)
+        turn_logp = turn_dist.log_prob(turn_actions).sum(dim=-1)
+        logps = move_logp + turn_logp
+
+        returns = torch.zeros(self.ptr, device=device)
+        R = 0
+        for i in reversed(range(self.ptr)):
+            if dones[i]:
+                R = 0
+            R = rewards[i] + self.gamma * R
+            returns[i] = R
+
+        advantages = (returns - values.squeeze(-1)).detach()
+        critic_loss = F.mse_loss(values.squeeze(-1), returns)
+
+        actor_loss = -(logps * advantages).mean()
+        critic_loss = F.mse_loss(values, returns)
+        
+        loss = actor_loss + 0.5 * critic_loss
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.actor_net.parameters(), max_norm=0.5)
+        self.optimizer.step()
+
+
     # Observe state and decide optimal action
     def observe(self, data):
+        if (self.ptr >= self.n_step):
+            self.ptr = 0
+
         state = data
         state_tensor = torch.tensor(state, dtype=torch.float32, device=device)
-        state_tensor = state_tensor.unsqueeze(0)
-        action_tensor, critic_value = self.select_action(state_tensor)
+        if state_tensor.dim() == 1:
+            state_tensor = state_tensor.unsqueeze(0)
+        action_tensor, critic_value, logp = self.select_action(state_tensor)
         action = action_tensor.tolist()
-        action_tensor = action_tensor.unsqueeze(0)
 
-        self.state_buf[self.ptr] = state_tensor
-        self.action_buf[self.ptr] = action_tensor
-        self.val_buf[self.ptr] = critic_value
+        self.state_buf[self.ptr] = state_tensor.squeeze(0)
+        self.action_buf[self.ptr] = action_tensor.squeeze(0)
+        self.val_buf[self.ptr] = critic_value.squeeze(0)
+        self.logp_buf[self.ptr] = logp.squeeze(0)
 
         return action
     
     # From our previous observation, learn from the transition between state to next_state
     def learn(self, data):
-        next_state, reward, done = data
+        if (self.ptr >= self.n_step):
+            self.optimize_model()
+            self.ptr = 0
 
-        # next_state_tensor = torch.tensor(next_state, dtype=torch.float32, device=device) 
-        # next_state_tensor = next_state_tensor.unsqueeze(0)
+        next_state, reward, done = data
         reward_tensor = torch.tensor([reward], device=device)
 
-        self.done_buf[self.ptr] = done
         self.reward_buf[self.ptr] = reward_tensor
+        self.done_buf[self.ptr] = done
 
         self.episode_reward[self.episodes_total] += reward
         self.episode_length[self.episodes_total] += 1
         self.steps += 1
-        self.ptr += 1
 
         if (done):
             self.episodes_total += 1
-
-        if (self.n_step % self.ptr == 0):
-            self.optimize_model()
-            self.ptr = 0
+        
+        self.ptr += 1
     
     def get_policy(self):
         return self.actor_net
@@ -132,9 +195,14 @@ class ActorCritic:
         torch.save(self.actor_net.state_dict(), f"save/a2c/{self.episodes_total}_Policy_RBX.pth")
         torch.save(self.optimizer.state_dict(), f"save/a2c/{self.episodes_total}_Optim_RBX.pth")
 
-        with open("save/a2c/metadata", 'w') as f:
-            f.write(f"steps,episode_length,episode_reward,episodes_total\n")
-            f.write(f"{self.steps},{self.episode_length},{self.episode_reward},{self.episodes_total}")
+        metadata = {
+            "steps": self.steps,
+            "episode_length": dict(self.episode_length),
+            "episode_reward": dict(self.episode_reward),
+            "episodes_total": self.episodes_total
+        }
+        with open("save/a2c/metadata.json", 'w') as f:
+            json.dump(metadata, f)
     
     def get_stats(self):
         print(f"Steps taken: {self.steps}\nEpisodes trained: {self.episodes_total}")

@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from double_dqn import Double_DQN
+from actor_critic import ActorCritic
 import logging
 import traceback
 
@@ -13,8 +14,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-AGENT = Double_DQN(state_space=10, epsilon_decay=1000, epsilon_end=0.15)
-AGENT.load_policy(episode_num=23)
+# AGENT = Double_DQN(state_space=10, epsilon_decay=1000, epsilon_end=0.15)
+# AGENT.load_policy(episode_num=23)
+
+AGENT = ActorCritic(state_dim=9)
+AGENT.load_policy(episode_num=6)
+AGENT.load_metadata_json()
 
 # FastAPI app
 app = FastAPI()

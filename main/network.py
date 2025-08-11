@@ -104,7 +104,7 @@ class MultiHead_A2C(nn.Module):
 
         # Process angle and distance features (yaw_cos, yaw_sin, dist_to_target)
         self.aux_features_fc = nn.Sequential(
-            nn.Linear(2, 32),
+            nn.Linear(3, 32),
             nn.ReLU(),
             nn.Linear(32, 32),
             nn.ReLU()
