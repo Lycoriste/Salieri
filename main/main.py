@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from double_dqn import Double_DQN
 from actor_critic import ActorCritic
+import seaborn as sns
 import logging
 import traceback
 
@@ -14,12 +15,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# AGENT = Double_DQN(state_space=10, epsilon_decay=1000, epsilon_end=0.15)
-# AGENT.load_policy(episode_num=23)
-
-AGENT = ActorCritic(state_dim=9)
-AGENT.load_policy(episode_num=6)
+AGENT = ActorCritic(state_dim=12, n_step=10)
+AGENT.load_policy()
 AGENT.load_metadata_json()
+AGENT.train()
 
 # FastAPI app
 app = FastAPI()
@@ -119,6 +118,68 @@ async def plot_length():
         plt.title("Training Progress")
         plt.legend()
         plt.grid(True)
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        plt.close()
+        buf.seek(0)
+
+        return Response(content=buf.getvalue(), media_type="image/png")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+@app.get("/util/dist")
+async def plot_distribution():
+    try:
+        plt.figure(figsize=(12, 4))
+
+        plt.subplot(1, 3, 1)
+        plt.plot(AGENT.move_p)
+        plt.title("Move Probability over time")
+        plt.xlabel("Step")
+        plt.ylabel("P(move=1)")
+
+        plt.subplot(1, 3, 2)
+        plt.plot(AGENT.turn_mu)
+        plt.title("Turn Mean (mu) over time")
+        plt.xlabel("Step")
+        plt.ylabel("Turn mu")
+
+        plt.subplot(1, 3, 3)
+        plt.plot(AGENT.turn_std)
+        plt.title("Turn Std Dev (std) over time")
+        plt.xlabel("Step")
+        plt.ylabel("Turn std")
+
+        plt.tight_layout()
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        plt.close()
+        buf.seek(0)
+
+        return Response(content=buf.getvalue(), media_type="image/png")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+@app.get("/util/hist")
+async def plot_hist():
+    try:
+        plt.figure(figsize=(12,5))
+
+        plt.subplot(1,2,1)
+        sns.histplot(AGENT.move_p[-200:], bins=50, kde=True)
+        plt.title("Move action probabilities distribution")
+        plt.xlabel("Probability")
+        plt.ylabel("Frequency")
+
+        plt.subplot(1,2,2)
+        sns.histplot(AGENT.turn_action[-200:], bins=50, kde=True)
+        plt.title("Turn action distribution")
+        plt.xlabel("Probability")
+        plt.ylabel("Frequency")
+
+        plt.tight_layout()
 
         buf = io.BytesIO()
         plt.savefig(buf, format='png')

@@ -104,7 +104,7 @@ class MultiHead_A2C(nn.Module):
 
         # Process angle and distance features (yaw_cos, yaw_sin, dist_to_target)
         self.aux_features_fc = nn.Sequential(
-            nn.Linear(3, 32),
+            nn.Linear(6, 32),
             nn.ReLU(),
             nn.Linear(32, 32),
             nn.ReLU()
@@ -112,10 +112,14 @@ class MultiHead_A2C(nn.Module):
 
         # Shared deeper feature extractor
         self.shared_fc = nn.Sequential(
-            nn.Linear(32 + 32 + 32, 256),
+            nn.Linear(32*3, 256),
+            nn.LayerNorm(256),
             nn.ReLU(),
+            nn.Dropout(0.1),
             nn.Linear(256, 128),
+            nn.LayerNorm(128),
             nn.ReLU(),
+            nn.Dropout(0.1),
             nn.Linear(128, 128),
             nn.ReLU()
         )
@@ -125,7 +129,7 @@ class MultiHead_A2C(nn.Module):
 
         # Continuous actor head for steering
         self.turn_mu = nn.Linear(128, 1)
-        self.turn_log_std = nn.Parameter(torch.zeros(1))
+        self.turn_log_std = nn.Parameter(torch.full((1,), -1.0))
 
         # Critic
         self.value = nn.Linear(128, 1)
@@ -133,8 +137,8 @@ class MultiHead_A2C(nn.Module):
     def forward(self, state):
         # Split and process features
         agent_pos = state[:, 0:3]
-        aux_features = state[:, 3:6]
-        target_pos = state[:, 6:9]
+        target_pos = state[:, 3:6]
+        aux_features = state[:, 6:12]
 
         agent_feat = self.agent_pos_fc(agent_pos)
         target_feat = self.target_pos_fc(target_pos)
