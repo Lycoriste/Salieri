@@ -6,7 +6,7 @@ import numpy as np
 import math, random
 import os, sys, platform
 from collections import defaultdict
-from network import Multi_Head_QN
+from network import MultiHead_QN
 from replay_memory import ReplayMemory, Transition
 import matplotlib.pyplot as plt
 
@@ -44,8 +44,8 @@ class Double_DQN:
         self.memory = ReplayMemory(batch_size * 20)
 
         # Policy NN + Target NN
-        self.policy_net = Multi_Head_QN(state_space)
-        self.target_net = Multi_Head_QN(state_space)
+        self.policy_net = MultiHead_QN(state_space)
+        self.target_net = MultiHead_QN(state_space)
 
         # Set them to start with the same random weights + biases
         self.target_net.load_state_dict(self.policy_net.state_dict())

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.distributions import Normal, TransformedDistribution, TanhTransform
+from torch.distributions import Normal, TransformedDistribution, TanhTransform, Bernoulli
 import numpy as np
 import math, random
 import os, sys, platform
@@ -22,11 +22,15 @@ class ActorCritic:
                  state_dim: int,
                  n_step: int = 5,
                  gamma: float = 0.997,  
-                 alpha: float = 1e-3):
+                 alpha: float = 1e-4,
+                 critic_coef: float = 0.5,
+                 entropy_coef: float = 0.01):
 
         self.n_step = n_step
         self.gamma = gamma
         self.alpha = alpha
+        self.critic_coef = critic_coef
+        self.entropy_coef = entropy_coef
 
         # Statistics to keep tracking of training progress
         self.steps = 0
@@ -42,12 +46,11 @@ class ActorCritic:
         self.optimizer = optim.Adam(self.actor_net.parameters(), lr=self.alpha)
         
         self.ptr = 0
+        self.buffer_full = False
         self.state_buf = torch.zeros((n_step, state_dim), dtype=torch.float32, device=device)
         self.action_buf = torch.zeros((n_step, action_dim), dtype=torch.float32, device=device)
         self.reward_buf = torch.zeros((n_step,), dtype=torch.float32, device=device)
         self.done_buf = torch.zeros((n_step,), dtype=torch.float32, device=device)
-        self.val_buf = torch.zeros((n_step,), dtype=torch.float32, device=device)
-        self.logp_buf = torch.zeros((n_step,), dtype=torch.float32, device=device)
         
         # State and action handling
         self.state = None
@@ -65,25 +68,24 @@ class ActorCritic:
         # Exploitation
         with torch.inference_mode(): 
             move_logit, turn_mu, turn_std, critic_val = self.actor_net(state)
-            move_prob = torch.sigmoid(move_logit).squeeze()
-            move_action = torch.bernoulli(move_prob).float()
+            move_dist = Bernoulli(logits=move_logit)
+            move_action = move_dist.sample()
             
             turn_dist = Normal(turn_mu.squeeze(), turn_std.squeeze())
             turn_dist = TransformedDistribution(turn_dist, TanhTransform())
-            turn_action = turn_dist.rsample()
+            turn_action = turn_dist.sample()
 
-            max_turn = math.pi / 8  # 90 degrees in radians
+            max_turn = math.pi / 8  # 22 degrees in radians
             turn_action_scaled = turn_action * max_turn
 
-            eps = 1e-8
-            move_logp = (move_action * torch.log(move_prob + eps) + (1 - move_action) * torch.log(1 - move_prob + eps))
+            move_logp = move_logp = move_dist.log_prob(move_action)
             turn_logp = turn_dist.log_prob(turn_action).sum(dim=-1)
             logp = move_logp + turn_logp
 
             critic_val = critic_val.squeeze().detach()
             action = torch.stack([move_action, turn_action_scaled]).to(device).squeeze()
 
-            self.move_p.append(move_prob.item())
+            self.move_p.append(move_logp.item())
             self.turn_mu.append(turn_mu.item())
             self.turn_std.append(turn_std.item())
             self.turn_action.append(turn_action_scaled.item())
@@ -91,42 +93,45 @@ class ActorCritic:
             return action, critic_val, logp
 
     # Optimize agent's neural network
-    def optimize_model(self):
-        if self.ptr == 0:
-            return
-            
-        states = self.state_buf[:self.ptr]
-        actions = self.action_buf[:self.ptr]
-        rewards = self.reward_buf[:self.ptr]
-        dones = self.done_buf[:self.ptr]
+    def optimize_model(self, next_state_tensor, last_done):
+        states = self.state_buf
+        actions = self.action_buf
+        rewards = self.reward_buf
+        dones = self.done_buf
 
-        move_logit, turn_mu, turn_std, values = self.actor_net(states)
-        move_prob = torch.sigmoid(move_logit).squeeze(-1)
         move_actions = actions[:, 0]
         turn_actions = actions[:, 1]
-        
-        eps = 1e-8
-        move_logp = move_actions * torch.log(move_prob + eps) + (1 - move_actions) * torch.log(1 - move_prob + eps)
+
+        move_logit, turn_mu, turn_std, values = self.actor_net(states)
+        move_dist = torch.distributions.Bernoulli(logits=move_logit.squeeze())
+
         turn_std = turn_std.expand_as(turn_mu).squeeze(-1)
         turn_dist = torch.distributions.Normal(turn_mu.squeeze(-1), turn_std)
         turn_dist = TransformedDistribution(turn_dist, TanhTransform())
-        turn_action_unscaled = turn_actions / (math.pi / 8)
-        turn_logp = turn_dist.log_prob(turn_action_unscaled).sum(dim=-1)
-        logps = move_logp + turn_logp
+        turn_action_unscaled = torch.clamp(turn_actions / (math.pi / 8), -1.0 + 1e-6, 1.0 - 1e-6)
 
-        returns = torch.zeros(self.ptr, device=device)
-        R = 0
-        for i in reversed(range(self.ptr)):
-            if dones[i]:
-                R = 0
-            R = rewards[i] + self.gamma * R
-            returns[i] = R
+        move_log_probs = move_dist.log_prob(move_actions)
+        turn_log_probs = turn_dist.log_prob(turn_action_unscaled).squeeze()
+        logps = move_log_probs + turn_log_probs
 
-        advantages = (returns - values.squeeze(-1)).detach()
-        critic_loss = F.mse_loss(values.squeeze(-1), returns)
-        actor_loss = -(logps * advantages).mean()
+        with torch.inference_mode():
+            next_value = self.actor_net(next_state_tensor)[-1].squeeze() * (1 - last_done)
+            returns = torch.zeros_like(rewards, device=device)
+            R = next_value
+            for i in reversed(range(self.n_step)):
+                R = rewards[i] + self.gamma * R * (1 - dones[i])
+                returns[i] = R
+
+        advantages = returns - values
         
-        loss = actor_loss + 0.5 * critic_loss
+        actor_loss = -(logps * advantages.detach()).mean()
+        critic_loss = F.mse_loss(values, returns)
+        
+        move_entropy = move_dist.entropy().mean()
+        turn_entropy = turn_dist.entropy().mean()
+        total_entropy = move_entropy + turn_entropy
+
+        loss = actor_loss + self.critic_coef * critic_loss - self.entropy_coef * total_entropy
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -135,34 +140,25 @@ class ActorCritic:
 
     # Observe state and decide optimal action
     def observe(self, data):
-        if (self.ptr >= self.n_step):
-            self.ptr = 0
-
         state = data
         state_tensor = self.normalize_state(state)
         if state_tensor.dim() == 1:
             state_tensor = state_tensor.unsqueeze(0)
-        action_tensor, critic_value, logp = self.select_action(state_tensor)
+        action_tensor, _, _ = self.select_action(state_tensor)
         action = action_tensor.tolist()
 
         self.state_buf[self.ptr] = state_tensor.squeeze(0)
         self.action_buf[self.ptr] = action_tensor.squeeze(0)
-        self.val_buf[self.ptr] = critic_value.squeeze(0)
-        self.logp_buf[self.ptr] = logp.squeeze(0)
 
         return action
     
     # From our previous observation, learn from the transition between state to next_state
     def learn(self, data):
-        if (self.ptr >= self.n_step):
-            self.optimize_model()
-            self.ptr = 0
-
         next_state, reward, done = data
         reward_tensor = torch.tensor([reward], device=device)
 
         self.reward_buf[self.ptr] = reward_tensor
-        self.done_buf[self.ptr] = done
+        self.done_buf[self.ptr] = float(done)
 
         self.episode_reward[self.episodes_total] += reward
         self.episode_length[self.episodes_total] += 1
@@ -170,8 +166,16 @@ class ActorCritic:
 
         if (done):
             self.episodes_total += 1
-        
-        self.ptr += 1
+
+        self.ptr = (self.ptr + 1) % self.n_step
+        if self.ptr == 0:
+            self.buffer_full = True
+
+        if self.buffer_full:
+            next_state_tensor = self.normalize_state(next_state)
+            if next_state_tensor.dim() == 1:
+                next_state_tensor = next_state_tensor.unsqueeze(0)
+            self.optimize_model(next_state_tensor, done)
 
     def normalize_state(self, state):
         if not self.is_normalize_state:

@@ -8,21 +8,8 @@ device = torch.device(
     "mps" if torch.backends.mps.is_available() else
     "cpu"
 )
-
-# Basic linear layers for spatial navigation 
-class Spatial_DQN(nn.Module):
-    def __init__(self, state_dim, action_dim):
-        super(Spatial_DQN, self).__init__()
-        self.fc1 = nn.Linear(state_dim, 32)
-        self.fc2 = nn.Linear(32, 32)
-        self.fc3 = nn.Linear(32, action_dim)
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return self.fc3(x)
     
-class Multi_Head_QN(nn.Module):
+class MultiHead_QN(nn.Module):
     def __init__(self, state_dim):
         super().__init__()
 
