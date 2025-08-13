@@ -15,7 +15,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-AGENT = ActorCritic(state_dim=12, n_step=10)
+AGENT = ActorCritic(state_dim=14, n_step=10, entropy_coef=0.1, alpha=5e-5)
 AGENT.load_policy()
 AGENT.load_metadata_json()
 AGENT.train()
