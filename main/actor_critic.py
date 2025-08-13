@@ -231,8 +231,8 @@ class ActorCritic:
 
     def load_policy(self, episode_num: int = 0):
         try:
-            self.actor_net.load_state_dict(torch.load(f"save/{episode_num}_Policy_RBX.pth", map_location=device))
-            self.optimizer.load_state_dict(torch.load(f"save/{episode_num}_Optim_RBX.pth", map_location=device))
+            self.actor_net.load_state_dict(torch.load(f"save/a2c/{episode_num}_Policy_RBX.pth", map_location=device))
+            self.optimizer.load_state_dict(torch.load(f"save/a2c/{episode_num}_Optim_RBX.pth", map_location=device))
             self.actor_net.to(device)
 
             print("Loaded successfully.")
