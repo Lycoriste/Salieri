@@ -7,7 +7,7 @@ import numpy as np
 import math, random
 import os, sys, platform
 from collections import defaultdict
-from network import MultiHead_A2C
+from network import MultiHead_A2C, Small_A2C
 import matplotlib.pyplot as plt
 import json
 
@@ -40,7 +40,7 @@ class ActorCritic:
 
         # Policy NN
         action_dim = 2
-        self.actor_net = MultiHead_A2C(state_dim, action_dim)
+        self.actor_net = Small_A2C(state_dim, action_dim)
 
         # Adam or SGD - whichever stabilizes
         self.optimizer = optim.Adam(self.actor_net.parameters(), lr=self.alpha)
