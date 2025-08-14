@@ -233,19 +233,27 @@ class ActorCritic:
             print(f"No save files found.")
 
     def load_metadata_json(self, path: str = "save/a2c/metadata.json"):
-        with open(path, 'r') as f:
-            metadata = json.load(f)
+        try:
+            with open(path, 'r') as f:
+                metadata = json.load(f)
 
-        self.steps = metadata['steps']
-        self.episode_length = defaultdict(int, metadata['episode_length'])
-        self.episode_reward = defaultdict(int, metadata['episode_reward'])
-        self.episodes_total = metadata['episodes_total']
+            self.steps = metadata.get('steps', 0)
+            self.episodes_total = metadata.get('episodes_total', 0)
 
-        return metadata
-    
-    def get_stats(self):
-        print(f"Steps taken: {self.steps}\nEpisodes trained: {self.episodes_total}")
-        return self.steps, self.episode_reward, self.episodes_total
+            if 'episode_length' in metadata:
+                episode_length_int_keys = {int(k): v for k, v in metadata['episode_length'].items()}
+                self.episode_length = defaultdict(int, episode_length_int_keys)
+
+            if 'episode_reward' in metadata:
+                episode_reward_int_keys = {int(k): v for k, v in metadata['episode_reward'].items()}
+                self.episode_reward = defaultdict(int, episode_reward_int_keys)
+                
+            print(f"Metadata loaded. Resuming from {self.episodes_total} episodes and {self.steps} steps.")
+
+        except FileNotFoundError:
+            print("No metadata file found. Starting from scratch.")
+        except Exception as e:
+            print(f"Error loading metadata: {e}. Starting from scratch.")
 
 # Tracks running mean and standard deviation
 class RunningMeanStd:

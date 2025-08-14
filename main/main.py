@@ -1,11 +1,12 @@
 import os, io
+import plotly.express as px
 import matplotlib.pyplot as plt
+import seaborn as sns
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from double_dqn import Double_DQN
 from actor_critic import ActorCritic
-import seaborn as sns
 import logging
 import traceback
 
