@@ -7,7 +7,7 @@ import numpy as np
 import math, random
 import os, sys, platform
 from collections import defaultdict
-from network import MultiHead_A2C
+from network import MultiHead_A2C, Small_A2C
 import matplotlib.pyplot as plt
 import json
 
@@ -40,7 +40,7 @@ class ActorCritic:
 
         # Policy NN
         action_dim = 2
-        self.actor_net = MultiHead_A2C(state_dim, action_dim)
+        self.actor_net = Small_A2C(state_dim, action_dim)
 
         # Adam or SGD - whichever stabilizes
         self.optimizer = optim.Adam(self.actor_net.parameters(), lr=self.alpha)
@@ -59,6 +59,8 @@ class ActorCritic:
         self.clip_range = 10
         self.action = None
 
+        self.max_turn = math.pi/6
+
         self.move_p = []
         self.turn_action = []
         self.turn_mu = []
@@ -67,32 +69,32 @@ class ActorCritic:
     def select_action(self, state):
         # Exploitation
         with torch.inference_mode(): 
-            move_logit, turn_mu, turn_std, critic_val = self.actor_net(state)
+            move_logit, turn_mu, turn_std, _ = self.actor_net(state)
             move_dist = Bernoulli(logits=move_logit)
             move_action = move_dist.sample()
+
+            turn_std = torch.clamp(turn_std, min=0.1, max=2.0)
             
-            turn_dist = Normal(turn_mu.squeeze(), turn_std.squeeze())
+            turn_dist = Normal(turn_mu, turn_std)
             turn_dist = TransformedDistribution(turn_dist, TanhTransform())
             turn_action = turn_dist.sample()
 
-            max_turn = math.pi / 8  # 22 degrees in radians
+            max_turn = self.max_turn  # 22 degrees in radians
             turn_action_scaled = turn_action * max_turn
 
             move_logp = move_logp = move_dist.log_prob(move_action)
-            turn_logp = turn_dist.log_prob(turn_action).sum(dim=-1)
-            logp = move_logp + turn_logp
+            # turn_logp = turn_dist.log_prob(turn_action).sum(dim=-1)
 
-            critic_val = critic_val.squeeze().detach()
-            action = torch.stack([move_action, turn_action_scaled]).to(device).squeeze()
+            action = torch.cat([move_action, turn_action_scaled]).to(device).squeeze()
 
             self.move_p.append(move_logp.item())
             self.turn_mu.append(turn_mu.item())
             self.turn_std.append(turn_std.item())
             self.turn_action.append(turn_action_scaled.item())
 
-            return action, critic_val, logp
+            return action
 
-    # Optimize agent's neural network
+    # Update da weightss
     def optimize_model(self, next_state_tensor, last_done):
         states = self.state_buf
         actions = self.action_buf
@@ -105,16 +107,16 @@ class ActorCritic:
         move_logit, turn_mu, turn_std, values = self.actor_net(states)
         move_dist = torch.distributions.Bernoulli(logits=move_logit.squeeze())
 
-        turn_std = turn_std.expand_as(turn_mu).squeeze(-1)
-        turn_dist = torch.distributions.Normal(turn_mu.squeeze(-1), turn_std)
-        turn_dist = TransformedDistribution(turn_dist, TanhTransform())
-        turn_action_unscaled = torch.clamp(turn_actions / (math.pi / 8), -1.0 + 1e-6, 1.0 - 1e-6)
+        turn_std = torch.clamp(turn_std.expand_as(turn_mu).squeeze(-1), min=0.1, max=2.0)
+        norm_turn_dist = torch.distributions.Normal(turn_mu.squeeze(-1), turn_std)
+        turn_dist = TransformedDistribution(norm_turn_dist, TanhTransform())
+        turn_action_unscaled = torch.clamp(turn_actions / self.max_turn, -1.0 + 1e-6, 1.0 - 1e-6)
 
         move_log_probs = move_dist.log_prob(move_actions)
         turn_log_probs = turn_dist.log_prob(turn_action_unscaled).squeeze()
         logps = move_log_probs + turn_log_probs
 
-        with torch.inference_mode():
+        with torch.no_grad():
             next_value = self.actor_net(next_state_tensor)[-1].squeeze() * (1 - last_done)
             returns = torch.zeros_like(rewards, device=device)
             R = next_value
@@ -122,16 +124,21 @@ class ActorCritic:
                 R = rewards[i] + self.gamma * R * (1 - dones[i])
                 returns[i] = R
 
+        values = values.squeeze(-1)
         advantages = returns - values
-        
+        if advantages.std() > 1e-8:
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
         actor_loss = -(logps * advantages.detach()).mean()
         critic_loss = F.mse_loss(values, returns)
         
         move_entropy = move_dist.entropy().mean()
-        turn_entropy = turn_dist.entropy().mean()
+        turn_entropy = norm_turn_dist.entropy().mean()
         total_entropy = move_entropy + turn_entropy
 
-        loss = actor_loss + self.critic_coef * critic_loss - self.entropy_coef * total_entropy
+        turn_bias_penalty = torch.mean(turn_mu ** 2) * 0.01
+
+        loss = actor_loss + self.critic_coef * critic_loss - self.entropy_coef * total_entropy + turn_bias_penalty
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -144,7 +151,7 @@ class ActorCritic:
         state_tensor = self.normalize_state(state)
         if state_tensor.dim() == 1:
             state_tensor = state_tensor.unsqueeze(0)
-        action_tensor, _, _ = self.select_action(state_tensor)
+        action_tensor = self.select_action(state_tensor)
         action = action_tensor.tolist()
 
         self.state_buf[self.ptr] = state_tensor.squeeze(0)
@@ -224,8 +231,8 @@ class ActorCritic:
 
     def load_policy(self, episode_num: int = 0):
         try:
-            self.actor_net.load_state_dict(torch.load(f"save/{episode_num}_Policy_RBX.pth", map_location=device))
-            self.optimizer.load_state_dict(torch.load(f"save/{episode_num}_Optim_RBX.pth", map_location=device))
+            self.actor_net.load_state_dict(torch.load(f"save/a2c/{episode_num}_Policy_RBX.pth", map_location=device))
+            self.optimizer.load_state_dict(torch.load(f"save/a2c/{episode_num}_Optim_RBX.pth", map_location=device))
             self.actor_net.to(device)
 
             print("Loaded successfully.")
