@@ -19,14 +19,14 @@ class ReplayMemory(object):
         return len(self.memory)
 
 # Sumtree PER by Schaul et al.
-class PrioritizedReplayMemory:
+class PriorityReplay:
     def __init__(self, capacity, alpha=0.6, beta=0.4, beta_increment_per_sampling=1e-4, eps=1e-5):
         self.tree = SumTree(capacity)
         self.capacity = capacity
         self.alpha = alpha  # [0~1] convert priority to power
         self.beta = beta    # importance sampling bias correction
         self.beta_increment_per_sampling = beta_increment_per_sampling
-        self.eps = eps      # small amount to avoid zero priority
+        self.eps = eps      # small constant to avoid zero priority
 
     def push(self, *args):
         max_priority = np.max(self.tree.tree[-self.tree.capacity:]) if self.tree.n_entries > 0 else 1.0

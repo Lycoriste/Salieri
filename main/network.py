@@ -149,36 +149,23 @@ class MultiHead_A2C(nn.Module):
 
         return move_logit, turn_mu, turn_std, value
 
-class Simple_A2C(nn.Module):
-    def __init__(self, state_dim: int = 3, action_dim: int = 2):
+class MultiHead_SAC(nn.Module):
+    def __init__(self, state_dim: int, action_dim: int):
         super().__init__()
-        # A simple shared body to extract features from the state.
-        self.shared_body = nn.Sequential(
-            nn.Linear(state_dim, 64),
+
+        self.agent_pos = nn.Sequential(
+            nn.Linear(3, 32),
             nn.ReLU(),
-            nn.Linear(64, 64),
+            nn.Linear(32),
             nn.ReLU()
         )
 
-        self.move_logit = nn.Linear(64, 1)
-        self.turn_mu = nn.Linear(64, 1)
-        self.turn_log_std = nn.Linear(64, 1)
-        
-        self.value = nn.Linear(64, 1)
+        self.target_pos = nn.Sequential(
+            nn.Linear(3, 32),
+            nn.ReLU(),
+            nn.Linear(32),
+            nn.ReLU()
+        )
 
-        # Sensible initializations for the turn action head
-        nn.init.zeros_(self.turn_mu.bias)
-        nn.init.xavier_uniform_(self.turn_mu.weight, gain=0.1)
-        nn.init.constant_(self.turn_log_std.bias, -0.5)
-
-    def forward(self, state):
-        features = self.shared_body(state)
-        move_logit = self.move_logit(features)
-        
-        turn_mu = self.turn_mu(features)
-        turn_log_std = self.turn_log_std(features)
-        turn_std = torch.exp(turn_log_std)
-        
-        value = self.value(features)
-
-        return move_logit, turn_mu, turn_std, value
+    def forward(self):
+        ...

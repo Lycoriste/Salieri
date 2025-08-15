@@ -1,0 +1,7 @@
+.title {
+  display: flex;
+  font-size: 2rem;
+  color: white;
+  margin-top: 0.75rem;
+  margin-left: 1.25rem;
+}
