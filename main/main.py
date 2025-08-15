@@ -1,7 +1,13 @@
 import os, io
+
 import plotly.express as px
+import plotly.io as pio
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+import uvicorn
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -16,9 +22,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-AGENT = ActorCritic(state_dim=5, n_step=10, entropy_coef=0.1, alpha=5e-5)
-AGENT.load_policy()
-AGENT.load_metadata_json()
+AGENT = ActorCritic(state_dim=3, n_step=5, entropy_coef=0.05, alpha=1e-4)
+# AGENT.load_policy()
+# AGENT.load_metadata_json()
 AGENT.train()
 
 # FastAPI app
@@ -190,9 +196,22 @@ async def plot_hist():
         return Response(content=buf.getvalue(), media_type="image/png")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+@app.get("/graph")
+async def plotly_graph():
+    try:
+        plots = []
+
+        steps = AGENT.steps
+        episode_length = AGENT.episode_length
+        episode_reward = AGENT.episode_reward
+        episode_total = AGENT.episodes_total
+
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # Run Uvicorn to start server
 if __name__ == "__main__":
-    import uvicorn
     print("Server started!")
     uvicorn.run(app, host="0.0.0.0", port=7777)

@@ -1,7 +1,13 @@
 Salieri
 =======
 
-It will learn and forget what it learned.
-The past won't even be memories, it just never existed.
-But that's ok, because the future is independent of the past given the present.
+The future is independent of the past given the present.
 
+=======
+
+TODO:
+- Soft actor critic
+- Behavior trees
+- Boost decision trees
+- Design more scenarios
+- Replicate training environment in Python

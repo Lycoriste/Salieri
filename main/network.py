@@ -91,7 +91,7 @@ class MultiHead_A2C(nn.Module):
 
         # Process angle and distance features (rel pos xyz, yaw_cos, yaw_sin, alignment, dist_to_target)
         self.aux_features_fc = nn.Sequential(
-            nn.Linear(8, 32),
+            nn.Linear(state_dim - 6, 32),
             nn.ReLU(),
             nn.Linear(32, 32),
             nn.ReLU()
@@ -149,72 +149,36 @@ class MultiHead_A2C(nn.Module):
 
         return move_logit, turn_mu, turn_std, value
 
-class Small_A2C(nn.Module):
-    def __init__(self, state_dim, action_dim):
+class Simple_A2C(nn.Module):
+    def __init__(self, state_dim: int = 3, action_dim: int = 2):
         super().__init__()
-        self.state_dim = state_dim
-        self.action_dim = action_dim
-
-        self.target_pos_fc = nn.Sequential(
-            nn.Linear(3, 32),  # target x, y, z
+        # A simple shared body to extract features from the state.
+        self.shared_body = nn.Sequential(
+            nn.Linear(state_dim, 64),
             nn.ReLU(),
-            nn.Linear(32, 32),
+            nn.Linear(64, 64),
             nn.ReLU()
         )
 
-        self.aux_features_fc = nn.Sequential(
-            nn.Linear(2, 32),
-            nn.ReLU(),
-            nn.Linear(32, 32),
-            nn.ReLU()
-        )
+        self.move_logit = nn.Linear(64, 1)
+        self.turn_mu = nn.Linear(64, 1)
+        self.turn_log_std = nn.Linear(64, 1)
+        
+        self.value = nn.Linear(64, 1)
 
-        # Shared deeper feature extractor
-        self.shared_fc = nn.Sequential(
-            nn.Linear(32*2, 256),
-            nn.LayerNorm(256),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(256, 128),
-            nn.LayerNorm(128),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(128, 128),
-            nn.ReLU()
-        )
-
-        # Discrete actor head for movement
-        self.move_logit = nn.Linear(128, 1)
-
-        # Continuous actor head for steering
-        self.turn_mu = nn.Linear(128, 1)
+        # Sensible initializations for the turn action head
         nn.init.zeros_(self.turn_mu.bias)
         nn.init.xavier_uniform_(self.turn_mu.weight, gain=0.1)
-
-        self.turn_log_std = nn.Linear(128, 1)
         nn.init.constant_(self.turn_log_std.bias, -0.5)
 
-        # Critic
-        self.value = nn.Linear(128, 1)
-
     def forward(self, state):
-        # Split and process features
-        target_pos = state[:, 0:3]
-        aux_features = state[:, 3:]
-
-        target_feat = self.target_pos_fc(target_pos)
-        aux_feat = self.aux_features_fc(aux_features)
-
-        x = torch.cat([target_feat, aux_feat], dim=1)
-        x = self.shared_fc(x)
-
-        # Actor outputs
-        move_logit = self.move_logit(x)
-        turn_mu = torch.tanh(self.turn_mu(x)) * 0.5
-        turn_log_std = torch.clamp(self.turn_log_std(x), min=-2.0, max=1.0)
+        features = self.shared_body(state)
+        move_logit = self.move_logit(features)
+        
+        turn_mu = self.turn_mu(features)
+        turn_log_std = self.turn_log_std(features)
         turn_std = torch.exp(turn_log_std)
-
-        # Critic output
-        value = self.value(x)
+        
+        value = self.value(features)
 
         return move_logit, turn_mu, turn_std, value

@@ -7,7 +7,7 @@ import numpy as np
 import math, random
 import os, sys, platform
 from collections import defaultdict
-from network import MultiHead_A2C, Small_A2C
+from network import MultiHead_A2C, Simple_A2C
 import matplotlib.pyplot as plt
 import json
 
@@ -40,7 +40,7 @@ class ActorCritic:
 
         # Policy NN
         action_dim = 2
-        self.actor_net = Small_A2C(state_dim, action_dim)
+        self.actor_net = Simple_A2C(state_dim, action_dim)
 
         # Adam or SGD - whichever stabilizes
         self.optimizer = optim.Adam(self.actor_net.parameters(), lr=self.alpha)
@@ -54,8 +54,6 @@ class ActorCritic:
         
         # State and action handling
         self.state = None
-        self.state_normalizer = RunningMeanStd(shape=(state_dim,))
-        self.is_normalize_state = True
         self.clip_range = 10
         self.action = None
 
@@ -71,19 +69,20 @@ class ActorCritic:
         with torch.inference_mode(): 
             move_logit, turn_mu, turn_std, _ = self.actor_net(state)
             move_dist = Bernoulli(logits=move_logit)
-            move_action = move_dist.sample()
+            # move_action = move_dist.sample()
+            move_action = torch.tensor([0.0], device=device).unsqueeze(1)
 
             turn_std = torch.clamp(turn_std, min=0.1, max=2.0)
             
             turn_dist = Normal(turn_mu, turn_std)
             turn_dist = TransformedDistribution(turn_dist, TanhTransform())
-            turn_action = turn_dist.sample()
+            turn_action = turn_dist.rsample()
 
             max_turn = self.max_turn  # 22 degrees in radians
             turn_action_scaled = turn_action * max_turn
 
             move_logp = move_logp = move_dist.log_prob(move_action)
-            # turn_logp = turn_dist.log_prob(turn_action).sum(dim=-1)
+            turn_logp = turn_dist.log_prob(turn_action).sum(dim=-1)
 
             action = torch.cat([move_action, turn_action_scaled]).to(device).squeeze()
 
@@ -112,7 +111,8 @@ class ActorCritic:
         turn_dist = TransformedDistribution(norm_turn_dist, TanhTransform())
         turn_action_unscaled = torch.clamp(turn_actions / self.max_turn, -1.0 + 1e-6, 1.0 - 1e-6)
 
-        move_log_probs = move_dist.log_prob(move_actions)
+        # move_log_probs = move_dist.log_prob(move_actions)
+        move_log_probs = 0
         turn_log_probs = turn_dist.log_prob(turn_action_unscaled).squeeze()
         logps = move_log_probs + turn_log_probs
 
@@ -120,6 +120,7 @@ class ActorCritic:
             next_value = self.actor_net(next_state_tensor)[-1].squeeze() * (1 - last_done)
             returns = torch.zeros_like(rewards, device=device)
             R = next_value
+
             for i in reversed(range(self.n_step)):
                 R = rewards[i] + self.gamma * R * (1 - dones[i])
                 returns[i] = R
@@ -132,7 +133,8 @@ class ActorCritic:
         actor_loss = -(logps * advantages.detach()).mean()
         critic_loss = F.mse_loss(values, returns)
         
-        move_entropy = move_dist.entropy().mean()
+        # move_entropy = move_dist.entropy().mean()
+        move_entropy = 0
         turn_entropy = norm_turn_dist.entropy().mean()
         total_entropy = move_entropy + turn_entropy
 
@@ -148,7 +150,7 @@ class ActorCritic:
     # Observe state and decide optimal action
     def observe(self, data):
         state = data
-        state_tensor = self.normalize_state(state)
+        state_tensor = torch.tensor([state], device=device)
         if state_tensor.dim() == 1:
             state_tensor = state_tensor.unsqueeze(0)
         action_tensor = self.select_action(state_tensor)
@@ -179,39 +181,39 @@ class ActorCritic:
             self.buffer_full = True
 
         if self.buffer_full:
-            next_state_tensor = self.normalize_state(next_state)
+            next_state_tensor = torch.tensor([next_state], device=device)
             if next_state_tensor.dim() == 1:
                 next_state_tensor = next_state_tensor.unsqueeze(0)
             self.optimize_model(next_state_tensor, done)
 
-    def normalize_state(self, state):
-        if not self.is_normalize_state:
-            return state
+    # def normalize_state(self, state):
+    #     if not self.is_normalize_state:
+    #         return state
             
-        # Update running statistics during training
-        if self.actor_net.training:
-            if isinstance(state, torch.Tensor):
-                state_np = state.cpu().numpy()
-            else:
-                state_np = np.array(state)
+    #     # Update running statistics during training
+    #     if self.actor_net.training:
+    #         if isinstance(state, torch.Tensor):
+    #             state_np = state.cpu().numpy()
+    #         else:
+    #             state_np = np.array(state)
                 
-            if state_np.ndim == 1:
-                state_np = state_np.reshape(1, -1)
+    #         if state_np.ndim == 1:
+    #             state_np = state_np.reshape(1, -1)
                 
-            self.state_normalizer.update(state_np)
+    #         self.state_normalizer.update(state_np)
 
-        mean = torch.tensor(self.state_normalizer.mean, dtype=torch.float32, device=device)
-        std = torch.tensor(np.sqrt(self.state_normalizer.var + 1e-8), dtype=torch.float32, device=device)
+    #     mean = torch.tensor(self.state_normalizer.mean, dtype=torch.float32, device=device)
+    #     std = torch.tensor(np.sqrt(self.state_normalizer.var + 1e-8), dtype=torch.float32, device=device)
         
-        if isinstance(state, torch.Tensor):
-            normalized = (state - mean) / std
-        else:
-            state_tensor = torch.tensor(state, dtype=torch.float32, device=device)
-            normalized = (state_tensor - mean) / std
+    #     if isinstance(state, torch.Tensor):
+    #         normalized = (state - mean) / std
+    #     else:
+    #         state_tensor = torch.tensor(state, dtype=torch.float32, device=device)
+    #         normalized = (state_tensor - mean) / std
             
-        # Clip to prevent extreme values
-        normalized = torch.clamp(normalized, -self.clip_range, self.clip_range)
-        return normalized
+    #     # Clip to prevent extreme values
+    #     normalized = torch.clamp(normalized, -self.clip_range, self.clip_range)
+    #     return normalized
     
     def train(self):
         self.actor_net.train()
@@ -263,28 +265,28 @@ class ActorCritic:
             print(f"Error loading metadata: {e}. Starting from scratch.")
 
 # Tracks running mean and standard deviation
-class RunningMeanStd:
-    def __init__(self, shape):
-        self.mean = np.zeros(shape, dtype=np.float32)
-        self.var = np.ones(shape, dtype=np.float32)
-        self.count = 1e-4
+# class RunningMeanStd:
+#     def __init__(self, shape):
+#         self.mean = np.zeros(shape, dtype=np.float32)
+#         self.var = np.ones(shape, dtype=np.float32)
+#         self.count = 1e-4
 
-    def update(self, x):
-        batch_mean = np.mean(x, axis=0)
-        batch_var = np.var(x, axis=0)
-        batch_count = x.shape[0]
-        self.update_from_moments(batch_mean, batch_var, batch_count)
+#     def update(self, x):
+#         batch_mean = np.mean(x, axis=0)
+#         batch_var = np.var(x, axis=0)
+#         batch_count = x.shape[0]
+#         self.update_from_moments(batch_mean, batch_var, batch_count)
 
-    def update_from_moments(self, batch_mean, batch_var, batch_count):
-        delta = batch_mean - self.mean
-        tot_count = self.count + batch_count
+#     def update_from_moments(self, batch_mean, batch_var, batch_count):
+#         delta = batch_mean - self.mean
+#         tot_count = self.count + batch_count
 
-        new_mean = self.mean + delta * batch_count / tot_count
-        m_a = self.var * self.count
-        m_b = batch_var * batch_count
-        M2 = m_a + m_b + np.square(delta) * self.count * batch_count / tot_count
-        new_var = M2 / tot_count
+#         new_mean = self.mean + delta * batch_count / tot_count
+#         m_a = self.var * self.count
+#         m_b = batch_var * batch_count
+#         M2 = m_a + m_b + np.square(delta) * self.count * batch_count / tot_count
+#         new_var = M2 / tot_count
 
-        self.mean = new_mean
-        self.var = new_var
-        self.count = tot_count
+#         self.mean = new_mean
+#         self.var = new_var
+#         self.count = tot_count
