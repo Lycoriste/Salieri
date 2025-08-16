@@ -148,24 +148,3 @@ class MultiHead_A2C(nn.Module):
         value = self.value(x)
 
         return move_logit, turn_mu, turn_std, value
-
-class MultiHead_SAC(nn.Module):
-    def __init__(self, state_dim: int, action_dim: int):
-        super().__init__()
-
-        self.agent_pos = nn.Sequential(
-            nn.Linear(3, 32),
-            nn.ReLU(),
-            nn.Linear(32),
-            nn.ReLU()
-        )
-
-        self.target_pos = nn.Sequential(
-            nn.Linear(3, 32),
-            nn.ReLU(),
-            nn.Linear(32),
-            nn.ReLU()
-        )
-
-    def forward(self):
-        ...

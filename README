@@ -22,7 +22,7 @@ Notes:
 
 These papers are very short and accessible compared to neuroscience papers.
 
-Implementation references:
+References:
 1. Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor
    by Haarnoja et al. (https://arxiv.org/pdf/1801.01290)
 2. Soft Actor-Critic Algorithms and Applications
