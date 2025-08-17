@@ -11,8 +11,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from double_dqn import Double_DQN
-from actor_critic import ActorCritic
+from soft_ac import SoftAC
 import logging
 import traceback
 
@@ -22,10 +21,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-AGENT = ActorCritic(state_dim=3, n_step=5, entropy_coef=0.05, alpha=1e-4)
+AGENT = SoftAC(state_dim=3, action_dim=2, batch_size=100)
 # AGENT.load_policy()
 # AGENT.load_metadata_json()
-AGENT.train()
 
 # FastAPI app
 app = FastAPI()
