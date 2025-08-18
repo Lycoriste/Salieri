@@ -11,7 +11,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from soft_ac import SoftAC
+from sac_v2 import SoftAC
 import logging
 import traceback
 
@@ -21,9 +21,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-AGENT = SoftAC(state_dim=3, action_dim=2, batch_size=100)
-# AGENT.load_policy()
-# AGENT.load_metadata_json()
+AGENT = SoftAC(state_dim=12, action_dim=2, entropy_coef=0.05)
+AGENT.load_policy(episode_num=40)
 
 # FastAPI app
 app = FastAPI()
@@ -53,7 +52,7 @@ async def root():
 @app.post("/rl/observe")
 async def receive_data(request: Observation):
     try:
-        action = AGENT.observe(request.state)
+        action = AGENT.observe(request.state, False)
         return JSONResponse(content={"action": action})
     except Exception as e:
         logger.error(f"Observe Error:\n{traceback.format_exc()}")

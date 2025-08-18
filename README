@@ -1,16 +1,17 @@
 Salieri
 =======
 
-The future is independent of the past given the present.
+A Roblox reinforcement learning agent. What is the least amount of information
+required for a blind agent to learn its environment?
 
 =======
 
 TODO:
-- Soft actor critic
 - Behavior trees
 - Boost decision trees
 - Design more scenarios
 - Replicate training environment in Python
+- Wezaemon
 
 Notes:
 - Off-policies found to perform better since training via ROBLOX

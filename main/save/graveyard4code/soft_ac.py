@@ -25,8 +25,8 @@ class SoftAC:
     def __init__(self,
                  state_dim: int,
                  action_dim: int,
-                 batch_size: int = 100,
-                 replay_capacity: int = 1000,
+                 batch_size: int = 128,
+                 replay_capacity: int = 10000,
                  gamma: float = 0.99,
                  tau: float = 0.005,
                  actor_lr: float = 3e-4,
@@ -225,30 +225,30 @@ class MultiHead_SAC(nn.Module):
     def __init__(self, state_dim: int, action_dim: int):
         super().__init__()
 
-        # self.agent_nn = nn.Sequential(
-        #     nn.Linear(3, 32),
-        #     nn.ReLU(),
-        #     nn.Linear(32, 32),
-        #     nn.ReLU()
-        # )
+        self.agent_nn = nn.Sequential(
+            nn.Linear(3, 32),
+            nn.ReLU(),
+            nn.Linear(32, 32),
+            nn.ReLU()
+        )
 
-        # self.target_nn = nn.Sequential(
-        #     nn.Linear(3, 32),
-        #     nn.ReLU(),
-        #     nn.Linear(32, 32),
-        #     nn.ReLU()
-        # )
+        self.target_nn = nn.Sequential(
+            nn.Linear(3, 32),
+            nn.ReLU(),
+            nn.Linear(32, 32),
+            nn.ReLU()
+        )
 
-        # self.aux_nn = nn.Sequential(
-        #     nn.Linear(state_dim - 6, 32),
-        #     nn.ReLU(),
-        #     nn.Linear(32, 32),
-        #     nn.ReLU()
-        # )
+        self.aux_nn = nn.Sequential(
+            nn.Linear(state_dim - 6, 32),
+            nn.ReLU(),
+            nn.Linear(32, 32),
+            nn.ReLU()
+        )
 
         # Shared deeper feature extractor
         self.shared_fc = nn.Sequential(
-            nn.Linear(3, 256),
+            nn.Linear(32 * 3, 256),
             nn.LayerNorm(256),
             nn.ReLU(),
             nn.Dropout(0.1),
@@ -265,22 +265,24 @@ class MultiHead_SAC(nn.Module):
 
         # Continuous actor head for steering
         self.turn_mu = nn.Linear(128, 1)
+        torch.nn.init.constant_(self.turn_mu.bias, 0)
+
         self.turn_log_std = nn.Linear(128, 1)
 
         # Critic
         self.q_value = nn.Linear(128 + action_dim, 1)
 
     def forward(self, state, action=None):
-        # agent_pos = state[:, 0:3]
-        # target_pos = state[:, 3:6]
-        # aux = state[:, 6:]
+        agent_pos = state[:, 0:3]
+        target_pos = state[:, 3:6]
+        aux = state[:, 6:]
 
-        # agent_feat = self.agent_nn(agent_pos)
-        # target_feat = self.target_nn(target_pos)
-        # aux_feat = self.aux_nn(aux)
+        agent_feat = self.agent_nn(agent_pos)
+        target_feat = self.target_nn(target_pos)
+        aux_feat = self.aux_nn(aux)
 
-        # x = torch.cat([agent_feat, target_feat, aux_feat], dim=1).to(device)
-        shared = self.shared_fc(state)
+        x = torch.cat([agent_feat, target_feat, aux_feat], dim=1).to(device)
+        shared = self.shared_fc(x)
 
         move_logit = self.move_logit(shared)
         turn_mu = self.turn_mu(shared)
