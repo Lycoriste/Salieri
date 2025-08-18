@@ -27,12 +27,12 @@ class SoftAC:
                  state_dim: int,
                  action_dim: int,
                  batch_size: int = 256,
-                 replay_capacity: int = 100000,
+                 replay_capacity: int = 10000,
                  gamma: float = 0.99,
                  tau: float = 0.005,
                  actor_lr: float = 1e-4,
                  critic_lr: float = 1e-4,
-                 entropy_coef: float = 0.2,
+                 entropy_coef: float = 0.05,
                  target_update_freq: int = 2,
         ):
         self.state_dim = state_dim
@@ -184,8 +184,13 @@ class SoftAC:
 
         self.update_counter += 1
 
-    def _compute_critic_loss(self, state_batch, action_batch, reward_batch, 
-                           next_state_batch, done_batch):
+    def _compute_critic_loss(self, 
+                             state_batch, 
+                             action_batch, 
+                             reward_batch, 
+                             next_state_batch, 
+                             done_batch
+        ):
         with torch.no_grad():
             # Sample next actions from current policy
             next_move_dist, next_turn_dist = self.actor.get_action_distribution(next_state_batch)
@@ -269,6 +274,8 @@ class SoftAC:
             'actor_optimizer': self.actor_optimizer.state_dict(),
             'critic_optimizer': self.critic_optimizer.state_dict(),
             'episodes_total': self.episodes_total,
+            'episode_length': dict(self.episode_length),
+            'episode_reward': dict(self.episode_reward),
             'steps': self.steps,
         }, f"{path}/checkpoint_{self.episodes_total}.pth")
 
@@ -295,6 +302,8 @@ class SoftAC:
             self.critic_b_target.load_state_dict(self.critic_b.state_dict())
             
             self.episodes_total = checkpoint['episodes_total']
+            self.episode_length = defaultdict(int, checkpoint.get('episode_length', {}))
+            self.episode_reward = defaultdict(float, checkpoint.get('episode_reward', {}))
             self.steps = checkpoint['steps']
             
             print(f"Loaded checkpoint from episode {self.episodes_total}")

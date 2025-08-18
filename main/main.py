@@ -10,10 +10,15 @@ import seaborn as sns
 import uvicorn
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sac_v2 import SoftAC
 import logging
 import traceback
+
+origins = [
+    "http://localhost:5173", # Tracking frontend
+]
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -26,6 +31,13 @@ AGENT.load_policy(episode_num=40)
 
 # FastAPI app
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Pydantic model for request data validation
 class RequestData(BaseModel):
@@ -80,13 +92,6 @@ async def save_policy_get():
         return {"detail": "Policy saved via GET (for testing)"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-@app.get("/util/stats")
-async def stats():
-    try:
-        return AGENT.get_stats()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
     
 @app.get("/util/plot_reward")
 async def plot_reward():
@@ -131,80 +136,36 @@ async def plot_length():
         return Response(content=buf.getvalue(), media_type="image/png")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
-@app.get("/util/dist")
-async def plot_distribution():
-    try:
-        plt.figure(figsize=(12, 4))
 
-        plt.subplot(1, 3, 1)
-        plt.plot(AGENT.move_p)
-        plt.title("Move Probability over time")
-        plt.xlabel("Step")
-        plt.ylabel("P(move=1)")
-
-        plt.subplot(1, 3, 2)
-        plt.plot(AGENT.turn_mu)
-        plt.title("Turn Mean (mu) over time")
-        plt.xlabel("Step")
-        plt.ylabel("Turn mu")
-
-        plt.subplot(1, 3, 3)
-        plt.plot(AGENT.turn_std)
-        plt.title("Turn Std Dev (std) over time")
-        plt.xlabel("Step")
-        plt.ylabel("Turn std")
-
-        plt.tight_layout()
-
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png')
-        plt.close()
-        buf.seek(0)
-
-        return Response(content=buf.getvalue(), media_type="image/png")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    
-@app.get("/util/hist")
-async def plot_hist():
-    try:
-        plt.figure(figsize=(12,5))
-
-        plt.subplot(1,2,1)
-        sns.histplot(AGENT.move_p[-200:], bins=50, kde=True)
-        plt.title("Move action probabilities distribution")
-        plt.xlabel("Probability")
-        plt.ylabel("Frequency")
-
-        plt.subplot(1,2,2)
-        sns.histplot(AGENT.turn_action[-200:], bins=50, kde=True)
-        plt.title("Turn action distribution")
-        plt.xlabel("Probability")
-        plt.ylabel("Frequency")
-
-        plt.tight_layout()
-
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png')
-        plt.close()
-        buf.seek(0)
-
-        return Response(content=buf.getvalue(), media_type="image/png")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    
 @app.get("/graph")
 async def plotly_graph():
     try:
         plots = []
 
         steps = AGENT.steps
-        episode_length = AGENT.episode_length
-        episode_reward = AGENT.episode_reward
-        episode_total = AGENT.episodes_total
+        episodes = list(range(AGENT.episodes_total))
+        episode_length = [AGENT.episode_length[i] for i in episodes]
+        episode_reward = [AGENT.episode_reward[i] for i in episodes]
 
+        fig = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=("Episode length", "Episode reward"),
+        )
+        fig.add_trace(
+            go.Scatter(x=episodes, y=episode_length, mode='lines', name='Length'),
+            row=1, col=1
+        )
+        fig.add_trace(
+            go.Scatter(x=episodes, y=episode_reward, mode='lines', name='Reward'),
+            row=1, col=2
+        )
+        fig.update_layout(
+            paper_bgcolor='#131313',
+            title_font_color='white',
+            font_color='white',
+        )
         
+        return fig.to_json()
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

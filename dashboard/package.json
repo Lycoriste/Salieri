@@ -12,6 +12,7 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.1.1",
     "@tsconfig/svelte": "^5.0.4",
+    "@types/plotly.js-dist-min": "^2.3.4",
     "svelte": "^5.38.1",
     "svelte-check": "^4.3.1",
     "typescript": "~5.8.3",
@@ -19,6 +20,8 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.12",
+    "plotly.js": "^3.1.0",
+    "plotly.js-dist-min": "^3.1.0",
     "tailwindcss": "^4.1.12"
   }
 }
