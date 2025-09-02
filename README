@@ -1,7 +1,7 @@
 Salieri
 =======
 
-A Roblox reinforcement learning project.
+A Roblox reinforcement learning project, and a PyTorch wrapper for Roblox reinforcement learning projects.
 
 =======
 
@@ -18,9 +18,9 @@ TODO:
 - Autoregressive policies
 - Behavior trees
 - Boost decision trees
-- Design more scenarios
-- Replicate training environment in Python
-- Wezaemon
+- Replicate training environment (Python + Gym)
+- Multi-agent
+- LLMs
 
 Notes:
 - Off-policies found to perform better since training via ROBLOX

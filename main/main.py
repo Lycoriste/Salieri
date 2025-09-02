@@ -16,6 +16,9 @@ from sac_v2 import SoftAC
 import logging
 import traceback
 
+agent_info = False
+inference = False
+
 origins = [
     "http://localhost:5173", # Tracking frontend
 ]
@@ -27,7 +30,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 AGENT = SoftAC(state_dim=12, action_dim=2, entropy_coef=0.05, network_type="COR", batch_size=256)
-# AGENT.load_policy(episode_num=40)
 
 # FastAPI app
 app = FastAPI()
@@ -39,9 +41,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Pydantic model for request data validation
-class RequestData(BaseModel):
-    data: dict
+# A dictionary (key: agent_name, val: agent_params)
+class AgentData(BaseModel):
+    agents: dict
 
 class Observation(BaseModel):
     state: list[float]
@@ -51,31 +53,58 @@ class Experience(BaseModel):
     reward: float
     done: bool
 
-# GET - just for fun
+# Startup functions
 @app.get("/")
 async def root():
-    return "Server running."
+    return "Server is running"
+
+AGENTS = []
+@app.post("/init")
+async def receive_init_params(request: AgentData):
+    try:
+        # [TODO] Implement after parse function
+        for agent_name, agent_params in request.agents:
+            ...
+    except Exception as e:
+        logger.error(f"[!] Unable to initialize agents")
+        raise HTTPException(status_code=400, detail=str(e))
 
 """
     [POST Requests]
-    Observe: receive state and returns an action from policy
-    Learn: receive next_state after taking action and updates policy
+    Step: receive state and returns an action from policy
+    Update: receive next_state after taking action and updates policy (if steps == batch_size)
 """
-@app.post("/rl/observe")
+@app.post("/rl/step")
 async def receive_data(request: Observation):
     try:
-        action = AGENT.observe(request.state, False)
+        action = AGENT.step(request.state, deterministic=inference)
         return JSONResponse(content={"action": action})
     except Exception as e:
-        logger.error(f"Observe Error:\n{traceback.format_exc()}")
+        logger.error(f"[!] Step error:\n{traceback.format_exc()}")
         raise HTTPException(status_code=400, detail=str(e))
     
-@app.post("/rl/learn")
+@app.post("/rl/update")
 async def receive_data(request: Experience):
     try:
-        AGENT.learn((request.next_state, request.reward, request.done))
+        AGENT.update((request.next_state, request.reward, request.done))
     except Exception as e:
-        logger.error(f"Learn Error:\n{traceback.format_exc()}")
+        logger.error(f"[!] Update error:\n{traceback.format_exc()}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/rl/inference")
+async def toggle_inference():
+    try:
+        inference = True
+    except Exception as e:
+        logger.error(f"[!] Failed to toggle inference mode")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/rl/train")
+async def toggle_train():
+    try:
+        inference = False
+    except Exception as e:
+        logger.error(f"[!] Failed to toggle train mode")
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/util/save")
@@ -102,28 +131,6 @@ async def plot_reward():
         plt.plot(episodes, rewards, label="Reward")
         plt.xlabel("Episode")
         plt.ylabel("Reward")
-        plt.title("Training Progress")
-        plt.legend()
-        plt.grid(True)
-
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png')
-        plt.close()
-        buf.seek(0)
-
-        return Response(content=buf.getvalue(), media_type="image/png")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.get("/util/plot_length")
-async def plot_length():
-    try:
-        plt.figure(figsize=(10,5))
-        episodes = list(range(AGENT.episodes_total))
-        length = [AGENT.episode_length[i] for i in episodes]
-        plt.plot(episodes, length, label="Episode Length")
-        plt.xlabel("Episode")
-        plt.ylabel("Episode Length")
         plt.title("Training Progress")
         plt.legend()
         plt.grid(True)

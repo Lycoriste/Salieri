@@ -110,7 +110,7 @@ class SoftAC:
         self.actor.train()
         return action
 
-    def observe(self, state, deterministic=False):
+    def step(self, state, deterministic=False):
         state_tensor = torch.tensor([state], dtype=torch.float32, device=device)
         action_tensor = self.select_action(state_tensor, deterministic)
         
@@ -123,7 +123,7 @@ class SoftAC:
 
         return [float(action[0]), float(action[1] * self.max_turn)]
 
-    def learn(self, data):
+    def update(self, data):
         next_state, reward, done = data
         reward = float(reward) 
         done = bool(done)
@@ -157,7 +157,7 @@ class SoftAC:
             self.state = None
 
     def optimize(self):
-        # TODO: Implement priority
+        # TODO: Implement priority experience replay... haizz.....
         self.actor.train()
         self.critic_a.train()
         self.critic_b.train()
