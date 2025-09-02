@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Normal, TransformedDistribution, TanhTransform, Bernoulli
+from corippling_network import COR_Actor, COR_Critic
 
 import matplotlib.pyplot as plt
 import plotly.express as px
@@ -34,6 +35,7 @@ class SoftAC:
                  critic_lr: float = 1e-4,
                  entropy_coef: float = 0.05,
                  target_update_freq: int = 2,
+                 network_type: str = "SAC",
         ):
         self.state_dim = state_dim
         self.action_dim = action_dim
@@ -42,13 +44,20 @@ class SoftAC:
         self.entropy_coef = entropy_coef
         self.target_update_freq = target_update_freq
 
-        self.actor = SAC_Actor(state_dim, action_dim).to(device)
-        self.critic_a = SAC_Critic(state_dim, action_dim).to(device)
-        self.critic_b = SAC_Critic(state_dim, action_dim).to(device)
+        if network_type == "SAC":
+            actor_network = SAC_Actor
+            critic_network = SAC_Critic
+        else:
+            actor_network = COR_Actor
+            critic_network = COR_Critic
+
+        self.actor = actor_network(state_dim, action_dim).to(device)
+        self.critic_a = critic_network(state_dim, action_dim).to(device)
+        self.critic_b = critic_network(state_dim, action_dim).to(device)
 
         # Target networks for stability
-        self.critic_a_target = SAC_Critic(state_dim, action_dim).to(device)
-        self.critic_b_target = SAC_Critic(state_dim, action_dim).to(device)
+        self.critic_a_target = critic_network(state_dim, action_dim).to(device)
+        self.critic_b_target = critic_network(state_dim, action_dim).to(device)
 
         # Initialize target networks with same weights
         self.critic_a_target.load_state_dict(self.critic_a.state_dict())
@@ -76,6 +85,8 @@ class SoftAC:
         self.max_turn = math.pi/4
 
     def select_action(self, state, deterministic=False):
+        self.actor.eval()
+
         with torch.no_grad():
             if deterministic:
                 # For evaluation, use deterministic policy
@@ -95,7 +106,9 @@ class SoftAC:
                 turn_action = turn_action.unsqueeze(-1)
             
             action = torch.cat([move_action, turn_action], dim=-1)
-            return action
+
+        self.actor.train()
+        return action
 
     def observe(self, state, deterministic=False):
         state_tensor = torch.tensor([state], dtype=torch.float32, device=device)
@@ -145,6 +158,10 @@ class SoftAC:
 
     def optimize(self):
         # TODO: Implement priority
+        self.actor.train()
+        self.critic_a.train()
+        self.critic_b.train()
+
         experiences, indices, weights = self.memory.sample(self.batch_size)
         batch = Transition(*zip(*experiences))
 
@@ -160,6 +177,10 @@ class SoftAC:
             next_state_batch, done_batch
         )
 
+        if torch.isnan(critic_loss):
+            print("[!] Warning: critic_loss was NaN, skipping update")
+            return  # Skip update if loss is NaN
+
         # Update critics
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
@@ -172,6 +193,9 @@ class SoftAC:
         # Update actor periodically for stability
         if self.update_counter % self.target_update_freq == 0:
             actor_loss = self._compute_actor_loss(state_batch)
+            if torch.isnan(actor_loss):
+                print("[!] Warning: actor_loss was NaN, skipping update")
+                return # Skip update if loss is NaN
             
             self.actor_optimizer.zero_grad()
             actor_loss.backward()

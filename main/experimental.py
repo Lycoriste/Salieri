@@ -54,24 +54,32 @@ class AdaptiveCorippleLayer(nn.Module):
         super().__init__()
         self.n_heads = n_heads
         self.hidden_dim = hidden_dim
-        self.heads = nn.ModuleList([nn.Linear(input_dim, hidden_dim) for _ in range(n_heads)])
+        self.out_dim = hidden_dim * n_heads
+
+        self.projection = nn.Linear(input_dim, self.out_dim)
+        nn.init.xavier_uniform_(self.projection.weight, gain=1.0)
+        nn.init.zeros_(self.projection.bias)
         
         # Learnable burst logits, dynamic rippling probability
-        self.burst_logits = nn.Parameter(torch.full((n_heads,), torch.logit(torch.tensor(init_prob))))
+        eps = 1e-6
+        init_prob = torch.tensor(init_prob).clamp(eps, 1 - eps)
+        self.burst_logits = nn.Parameter(torch.full((n_heads,), torch.logit(init_prob)))
+
+        self.input_norm = nn.LayerNorm(input_dim, eps=eps)
+        self.output_norm = nn.LayerNorm(self.out_dim, eps=eps)
     
     def forward(self, x):
-        print(x.shape)
-        batch, state_dim = x.shape
-        outputs = []
+        x = self.input_norm(x)
+        h = self.projection(x)
+        h = h.view(-1, self.n_heads, self.hidden_dim)
 
         # Compute burst probabilities from logits
-        burst_probs = torch.sigmoid(self.burst_logits)  # (n_heads,)
-        
-        for i, head in enumerate(self.heads):
-            h = head(x)
-            burst_mask = (torch.rand(batch, self.hidden_dim, device=x.device) < burst_probs[i]).float()
+        if self.training:
+            burst_probs = torch.sigmoid(self.burst_logits).view(1, self.n_heads, 1).clamp(1e-3, 0.3)
+            burst_mask = (torch.rand_like(h) < burst_probs).float()
             h = h * burst_mask
-            outputs.append(h)
+            h = torch.tanh(h)
 
-        out = torch.cat(outputs, dim=-1)
+        out = h.view(-1, self.out_dim)
+        out = self.output_norm(out)
         return out

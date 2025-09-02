@@ -26,8 +26,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-AGENT = SoftAC(state_dim=12, action_dim=2, entropy_coef=0.05)
-AGENT.load_policy(episode_num=40)
+AGENT = SoftAC(state_dim=12, action_dim=2, entropy_coef=0.05, network_type="COR", batch_size=256)
+# AGENT.load_policy(episode_num=40)
 
 # FastAPI app
 app = FastAPI()
