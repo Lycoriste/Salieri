@@ -6,6 +6,7 @@ A Roblox reinforcement learning project, and a PyTorch wrapper for Roblox reinfo
 =======
 
 Uses FastAPI for model <-> ROBLOX communication via HTTP requests.
+
 ROBLOX Studio: 2000 requests/min
 Timelag: >30ms
 
@@ -16,11 +17,15 @@ Timelag: >120ms
 
 TODO:
 - Autoregressive policies
+- More reinforcement learning algorithms
 - Behavior trees
 - Boost decision trees
 - Replicate training environment (Python + Gym)
 - Multi-agent
 - LLMs
+- Low variance network latency
+- Interpreter module
+- Cybersecurity
 
 Notes:
 - Off-policies found to perform better since training via ROBLOX

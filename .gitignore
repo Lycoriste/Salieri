@@ -55,3 +55,19 @@ dist-ssr
 *.sln
 *.sw?
 
+tests
+docs
+
+# Personal
+corippling_network.py
+experimental.py
+network.py
+dqn.py
+double_dqn.py
+ppo.py
+llm.py
+template.py
+
+engine/*
+gym/*
+rl/save/*
