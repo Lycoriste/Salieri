@@ -1,5 +1,4 @@
 import os, sys, platform
-import numpy as np
 import math, random
 from collections import defaultdict
 from typing import Tuple, Optional

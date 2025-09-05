@@ -17,6 +17,7 @@ env
 
 # Editor directories and files
 .vscode/*
+.cache/*
 !.vscode/extensions.json
 .idea
 .DS_Store
@@ -68,6 +69,7 @@ ppo.py
 llm.py
 template.py
 
+build/*
 engine/*
 gym/*
 rl/save/*

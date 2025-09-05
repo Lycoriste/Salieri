@@ -1,17 +1,19 @@
 Salieri
 =======
 
-A Roblox reinforcement learning project, and a PyTorch wrapper for Roblox reinforcement learning projects.
+A Roblox reinforcement learning project, and a PyTorch wrapper for Roblox.
 
 =======
 
-Uses FastAPI for model <-> ROBLOX communication via HTTP requests.
+Dependencies:
 
-ROBLOX Studio: 2000 requests/min
-Timelag: >30ms
+C++
+- ASIO
+- msgpack-c
 
-ROBLOX: 500 requests/min
-Timelag: >120ms
+Python
+- torch
+- matplotlib/plotly
 
 =======
 

@@ -1,0 +1,34 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/g++",
+      "-Wall",
+      "-std=c++20",
+      "-Iexternal/asio/include",
+      "-Iexternal/msgpack-c/include",
+      "-c",
+      "-o",
+      "build/main.o",
+      "engine/main.cpp"
+    ],
+    "directory": "/mnt/c/Users/steve/Desktop/Archon/Salieri",
+    "file": "/mnt/c/Users/steve/Desktop/Archon/Salieri/engine/main.cpp",
+    "output": "/mnt/c/Users/steve/Desktop/Archon/Salieri/build/main.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/g++",
+      "-Wall",
+      "-std=c++20",
+      "-Iexternal/asio/include",
+      "-Iexternal/msgpack-c/include",
+      "-c",
+      "-o",
+      "build/networking.o",
+      "engine/networking.cpp"
+    ],
+    "directory": "/mnt/c/Users/steve/Desktop/Archon/Salieri",
+    "file": "/mnt/c/Users/steve/Desktop/Archon/Salieri/engine/networking.cpp",
+    "output": "/mnt/c/Users/steve/Desktop/Archon/Salieri/build/networking.o"
+  }
+]
