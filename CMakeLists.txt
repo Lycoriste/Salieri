@@ -18,5 +18,5 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 # Link the libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE 
-    ${CMAKE_SOURCE_DIR}/external/msgpack-c/lib/libmsgpackc.a
+  #${CMAKE_SOURCE_DIR}/external/msgpack-c/lib/libmsgpackc.a
 )
