@@ -1,6 +1,12 @@
 #include "net_common.h"
+#include "http.h"
+#include "handler.h"
+#include "session_manager.h"
 
 using asio::ip::tcp;
+
+std::unordered_set<int> active_sessions;
+std::mutex session_mutex;
 
 class Session : public std::enable_shared_from_this<Session> {
   public:
@@ -10,6 +16,7 @@ class Session : public std::enable_shared_from_this<Session> {
   private:
     tcp::socket socket_;
     std::string buffer_ {};
+    HttpRequest req_ {};
 
     void do_read_header() {
       auto self(shared_from_this());
@@ -19,11 +26,24 @@ class Session : public std::enable_shared_from_this<Session> {
           std::string headers = buffer_.substr(0, bytes_transferred);
           buffer_.erase(0, bytes_transferred);
 
-          std::cout << "\n========HEADER=========\n" << headers << std::endl;
-
           std::istringstream stream(headers);
           std::string request_line;
           std::getline(stream, request_line); // Skip the "POST / HTTP/1.1"
+          
+          if (!request_line.empty() && request_line.back() == '\r') 
+            request_line.pop_back();
+          
+          std::istringstream rq_stream(request_line);
+          std::string method, path;
+          rq_stream >> method >> path;
+          req_.method = method == "POST" ? http_method::post : http_method::get;  // I don't care
+
+          auto it = path_to_endpoint.find(path);
+          if (it != path_to_endpoint.end()) {
+            req_.endpoint = it->second;
+          } else {
+            std::cerr << "[!] Endpoint does not exist: " << path <<  std::endl;
+          }
 
           std::string line {};
           std::size_t content_length = 0;
@@ -40,47 +60,52 @@ class Session : public std::enable_shared_from_this<Session> {
             }
           }
 
-          if (content_length > 0) {
-            // buffer_.resize(content_length);
-            do_read_body(content_length);
-          }
+          if (content_length <= 0) return;
+          req_.content_length = content_length;
+          do_read_body();
         }
       });
     }
 
-    void do_read_body(size_t content_length) {
+    void do_read_body() {
       auto self(shared_from_this());
 
-      if (buffer_.size() >= content_length) {
-        handle_body(content_length);
+      if (buffer_.size() >= req_.content_length) {
+        handle_body();
         return;
       }
 
       size_t data_read = buffer_.size();
-      buffer_.resize(content_length);
+      buffer_.resize(req_.content_length);
 
-      asio::async_read(socket_, asio::buffer(buffer_.data() + data_read, content_length - data_read),
-      [this, self, content_length](std::error_code ec, std::size_t length) {
+      asio::async_read(socket_, asio::buffer(buffer_.data() + data_read, req_.content_length - data_read),
+      [this, self](std::error_code ec, std::size_t length) {
         if (!ec) {
-          handle_body(content_length);
+          handle_body();
         } else {
-          std::cerr << "[!] Error reading header: " << ec.message() << std::endl;
+          std::cerr << "[!] Error reading body: " << ec.message() << std::endl;
         }
       });
     }
-
-    void handle_body(size_t content_length) {
-      std::cout << "[DEBUG] Received body (" << content_length << " bytes)\n";
-
+    
+    // Reads data and dispatches to endpoints
+    void handle_body() {
       try {
         msgpack::object_handle oh = msgpack::unpack(buffer_.data(), buffer_.size());
         msgpack::object obj = oh.get();
 
-        std::map<std::string, std::string> decoded;
+        std::unordered_map<std::string, msgpack::object> decoded;
         obj.convert(decoded);
 
-        std::cout << "[+] Payload: " << decoded["payload"] << std::endl;
-        send_response();
+        int server_id = decoded["server_id"].as<int>();
+        req_.body = std::move(decoded);
+
+        auto it = endpoint_to_handle.find(req_.endpoint);
+        if (it != endpoint_to_handle.end()) {
+            it->second(req_);
+        } else {
+            std::cerr << "[!] Unknown endpoint\n";
+        }
       } catch (const std::exception& e) {
         std::cerr << "[!] Msgpack error: " << e.what() << std::endl;
       }

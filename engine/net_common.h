@@ -10,6 +10,7 @@
 #include <vector>
 #include <algorithm>
 #include <chrono>
+#include <pybind11/embed.h>
 
 #ifdef _WIN32
 #define _WIN32_WINNT 0x0A00
