@@ -1,6 +1,6 @@
 #include <iostream>
-#include "networking.h"
+#include "server.h"
 
 int main() {
-  return networking();
+  return run();
 }

@@ -68,6 +68,8 @@ double_dqn.py
 ppo.py
 llm.py
 template.py
+agent.cpp
+agent.h
 
 build/*
 gym/*

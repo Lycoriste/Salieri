@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED On)
 # Add your source files
 add_executable(${PROJECT_NAME}
     engine/main.cpp
-    engine/networking.cpp
+    engine/server.cpp
 )
 
 # Set the include directories
