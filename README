@@ -8,7 +8,7 @@ A Roblox reinforcement learning project, and a PyTorch wrapper for Roblox.
 Dependencies:
 
 C++
-- ASIO (standalone)
+- ASIO
 - msgpack-c
 
 Python
@@ -23,8 +23,6 @@ Roblox
 TODO:
 - Autoregressive policies
 - More reinforcement learning algorithms
-- Behavior trees
-- Boost decision trees
 - Replicate training environment (Python + Gym)
 - Multi-agent
 - LLMs

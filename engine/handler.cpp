@@ -13,15 +13,14 @@ unordered_map<string_view, py::object> model_map {};
 unordered_map<string_view, unordered_map<string, string>> model_metadata;
 py::object sys_m;
 py::object torch_m;
-py::object replay_memory_m;
 py::object soft_ac_m;
 
 void init_py() {
+  py::gil_scoped_acquire acquire;
   sys_m = py::module_::import("sys");
   sys_m.attr("path").attr("insert")(0, "..");
 
   torch_m = py::module_::import("torch");
-  replay_memory_m = py::module_::import("rl.replay_memory");
   soft_ac_m = py::module::import("rl.soft_ac");
 }
 
@@ -30,16 +29,15 @@ void create_neural_network();
 
 // TODO: Add authentication
 void handle_start(const HttpRequest& req) {
-  std::cout << "Handle start:\n";
   string_view model_name;
   try {
-    auto model_name_opt = get_field<string_view>(req.body_view, "model_name");
-    if (!model_name_opt) {
-      std::cerr << "[!] model_name key not found or wrong type.\n";
+    auto name_opt = get_field<string_view>(req.body_view, "name");
+    if (!name_opt) {
+      std::cerr << "[!] Key: [name] not found or wrong type.\n";
       return;
     }
 
-    string_view model_name = *model_name_opt;
+    string_view model_name = *name_opt;
 
     if (model_map.find(model_name) != model_map.end()) {
       std::cout << "[*] Model already exists: " << model_name << ". Skipping initialization.\n";
@@ -68,7 +66,8 @@ void handle_start(const HttpRequest& req) {
     std::cerr << "[!] Params is not a map.\n";
     return;
   }
-
+  
+  py::gil_scoped_acquire acquire;
   try {
     py::dict kwargs = msgpack_map_to_pydict(params);
     py::object agent = soft_ac_m.attr("SoftAC")(**kwargs);
@@ -76,6 +75,8 @@ void handle_start(const HttpRequest& req) {
   } catch (const std::exception& e) {
     std::cerr << "[!] Error creating model object at handle_start: " << e.what() << std::endl;
   }
+
+  // Everything works -> add server to active session 
 }
 
 // Resolve save file naming conflicts
@@ -84,35 +85,71 @@ void handle_end(const HttpRequest& req) {
 
 // [server_id: #, payload: {agent:{}}, inference: T/F]
 void handle_step(const HttpRequest& req) {
-  std::cout << "what";
-  return;
+  try {
+    auto payload_opt = get_field<msgpack::object>(req.body_view, "payload");
+    msgpack::object payload = *payload_opt;
+    if (payload.type != msgpack::type::MAP) {
+      std::cerr << "[!] Payload is not a map.\n";
+    }
+
+    unordered_map<string_view, std::vector<string_view>> model_to_id {};
+    unordered_map<string_view, std::vector<std::vector<float>>> model_batch {};
+    
+    for (uint32_t i = 0; i < payload.via.map.size; ++i) {
+      const msgpack::object_kv& kv = payload.via.map.ptr[i];
+      if (kv.key.type != msgpack::type::STR) {
+        std::cerr << "[!] Non-string key in payload.\n";
+        continue;
+      }
+
+      string_view agent_id(kv.key.via.str.ptr, kv.key.via.str.size);
+      const msgpack::object& agent_params = kv.val;
+
+      // Potential overhead - review get_field
+      auto state_opt = get_field<std::vector<float>>(agent_params, "state");
+      if (!state_opt) {
+        std::cerr << "[!] Missing state information for agent " << agent_id << std::endl;
+        continue;
+      }
+
+      auto name_opt = get_field<string_view>(agent_params, "name");
+      if (!name_opt) {
+        std::cerr << "[!] Missing model name for agent " << agent_id << std::endl;
+        continue;
+      }
+      
+      model_to_id[*name_opt].push_back(agent_id);
+      model_batch[*name_opt].push_back(*state_opt);
+    }
+    
+    // Inference mode is a global setting
+    bool inference_flag = false;
+    auto inference_opt = get_field<bool>(req.body_view, "inference");
+    if (inference_opt) {
+      inference_flag = *inference_opt;
+    }
+    
+    unordered_map<string_view, std::vector<float>> response {};
+    py::gil_scoped_acquire acquire;
+
+    for (const auto& [model, state_batch] : model_batch) {
+      const py::list& actions = model_map[model].attr("step")(state_batch, inference_flag);
+      const auto& ids = model_to_id[model];
+    
+      if (ids.size() != py::len(actions)){
+        std::cerr << "[!] Number of agents does not match number of actions returned." << std::endl;
+        return;
+      }
+
+      for (size_t i = 0; i < ids.size(); ++i) {
+        response[ids[i]] = actions[i].cast<std::vector<float>>();
+      }
+    }
+  
+  } catch (const std::exception& e) {
+    std::cerr << "[!] Error in handle_step: " << e.what() << std::endl;
+  }
 }
-//void handle_step(const HttpRequest& req) {
-//  try {
-//    auto& payload_obj = req.body.at("payload");
-//    const auto& payload = payload_obj.as<unordered_map<string, msgpack::object>>();
-//    std::vector<string> agent_ids;
-//    std::vector<std::vector<float>> state_batch {};
-//    agent_ids.reserve(payload.size());
-//    state_batch.reserve(payload.size());
-//
-//    for (auto& [agent_id, agent_obj] : payload) {
-//      auto agent_info = agent_obj.as<unordered_map<string, msgpack::object>>();
-//      auto state = agent_info["state"].as<std::vector<float>>();
-//      agent_ids.push_back(agent_id);
-//      state_batch.push_back(std::move(state));
-//    }
-//
-//    bool inference_flag = false;
-//    if (req.body.contains("inference")) {
-//      inference_flag = req.body.at("inference").as<bool>();
-//    }
-//
-//    soft_ac_m.attr("step")(state_batch, inference_flag);
-//  } catch (const std::exception& e) {
-//    std::cerr << "[!] Error in handle_step: " << e.what() << std::endl;
-//  }
-//}
 
 void handle_update(const HttpRequest& req) {
 }

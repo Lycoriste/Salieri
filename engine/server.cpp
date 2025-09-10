@@ -6,6 +6,7 @@
 
 using asio::ip::tcp;
 
+asio::io_context io;
 std::unordered_set<int> active_sessions;
 std::mutex session_mutex;
 
@@ -146,7 +147,6 @@ class Server {
 };
 
 int run() {
-  asio::io_context io;
   Server server(io, 8080);
   io.run();
 
