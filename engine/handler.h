@@ -15,10 +15,9 @@ void handle_end(const HttpRequest& req);
 void handle_step(const HttpRequest& req);
 void handle_update(const HttpRequest& req);
 
-static const std::unordered_map<endpoints, void(*)(const HttpRequest&)> endpoint_to_handle {
-  {endpoints::start_session, handle_start},
-  {endpoints::end_session, handle_end},
-  {endpoints::step, handle_step},
-  {endpoints::update, handle_update},
+static const std::unordered_map<std::string, void(*)(const HttpRequest&)> endpoint_to_handle {
+  {"/start_session", handle_start},
+  {"/end_session", handle_end},
+  {"/step", handle_step},
+  {"/update", handle_update},
 };
-

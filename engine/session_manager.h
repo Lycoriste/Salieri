@@ -6,6 +6,7 @@
 // More metadata?
 struct SessionInfo {
   std::chrono::steady_clock::time_point last_auth;
+  std::string session_token;
 };
 
 class SessionManager {

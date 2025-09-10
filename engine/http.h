@@ -3,32 +3,31 @@
 #include <unordered_map>
 #include <msgpack.hpp>
 
-enum class endpoints {
-  start_session,
-  end_session,
-  step,
-  update,
-  save,
+enum class HttpMethod {
+  Post,
+  Get,
 };
 
-// Maps string paths to enum
-static const std::unordered_map<std::string, endpoints> path_to_endpoint {
-  {"/start_session", endpoints::start_session},
-  {"/end_session", endpoints::end_session},
-  {"/step", endpoints::step},
-  {"/update", endpoints::update},
-  {"/save", endpoints::save},
-};
-
-enum class http_method {
-  post,
-  get,
+enum class HttpStatusCode {
+    Ok = 200,
+    Created = 201,
+    BadRequest = 400,
+    NotFound = 404,
+    InternalServerError = 500
 };
 
 struct HttpRequest {
-    http_method method {};        
-    endpoints endpoint {};
+    HttpMethod method {};        
+    std::string endpoint {};
     std::string http_version {};
     std::size_t content_length = 0;
-    std::unordered_map<std::string, msgpack::object> body {};
+    msgpack::object body_view {};
+    msgpack::object_handle body_handle {};
+};
+
+struct HttpResponse {
+  std::string http_version {};
+  std::string status_code {};
+  std::size_t content_length {};
+  msgpack::object content {};
 };

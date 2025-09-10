@@ -1,6 +1,7 @@
 #include "net_common.h"
 #include "http.h"
 #include "handler.h"
+#include "mputil.h"
 #include "session_manager.h"
 
 using asio::ip::tcp;
@@ -35,15 +36,8 @@ class Session : public std::enable_shared_from_this<Session> {
           
           std::istringstream rq_stream(request_line);
           std::string method, path;
-          rq_stream >> method >> path;
-          req_.method = method == "POST" ? http_method::post : http_method::get;  // I don't care
-
-          auto it = path_to_endpoint.find(path);
-          if (it != path_to_endpoint.end()) {
-            req_.endpoint = it->second;
-          } else {
-            std::cerr << "[!] Endpoint does not exist: " << path <<  std::endl;
-          }
+          rq_stream >> method >> req_.endpoint;
+          req_.method = method == "POST" ? HttpMethod::Post : HttpMethod::Get;  // I don't care
 
           std::string line {};
           std::size_t content_length = 0;
@@ -91,29 +85,36 @@ class Session : public std::enable_shared_from_this<Session> {
     // Reads data and dispatches to endpoints
     void handle_body() {
       try {
-        msgpack::object_handle oh = msgpack::unpack(buffer_.data(), buffer_.size());
-        msgpack::object obj = oh.get();
+        req_.body_handle = msgpack::unpack(buffer_.data(), buffer_.size());
+        req_.body_view = req_.body_handle.get();
 
-        std::unordered_map<std::string, msgpack::object> decoded;
-        obj.convert(decoded);
+        if (req_.body_view.type != msgpack::type::MAP) {
+            std::cerr << "[!] Invalid message format\n";
+            return;
+        }
 
-        int server_id = decoded["server_id"].as<int>();
-        req_.body = std::move(decoded);
+        if (auto server_id_opt = get_field<int>(req_.body_view, "server_id")) {
+            int server_id = *server_id_opt;
+            std::cout << "server_id: " << server_id << std::endl;
+        } else {
+            std::cerr << "server_id not found or not an int!" << std::endl;
+        }
 
         auto it = endpoint_to_handle.find(req_.endpoint);
         if (it != endpoint_to_handle.end()) {
-            it->second(req_);
+          it->second(req_);
         } else {
-            std::cerr << "[!] Unknown endpoint\n";
+          std::cerr << "[!] Failed to find endpoint.\n";
         }
+
       } catch (const std::exception& e) {
-        std::cerr << "[!] Msgpack error: " << e.what() << std::endl;
+        std::cerr << "[!] Error handling request content: " << e.what() << std::endl;
+        std::cerr << " └── Endpoint: " << req_.endpoint << std::endl;
       }
     }
 
-    void send_response() {
+    void send_response(const std::string& resp) {
       auto self(shared_from_this());
-      const std::string resp = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK";
       asio::async_write(socket_, asio::buffer(resp),
       [this, self](std::error_code ec, std::size_t length) {
         if (!ec) {

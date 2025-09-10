@@ -2,19 +2,14 @@ import os, sys, platform
 import math, random
 from collections import defaultdict
 from typing import Tuple, Optional
-from replay_memory import PriorityReplay, Transition
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Normal, TransformedDistribution, TanhTransform, Bernoulli
-from corippling_network import COR_Actor, COR_Critic
-
-import matplotlib.pyplot as plt
-import plotly.express as px
-import plotly.io as io
-import json
+from .replay_memory import PriorityReplay, Transition
+from .corippling_network import COR_Actor, COR_Critic
 
 device = torch.device(
     "cuda" if torch.cuda.is_available() else

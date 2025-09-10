@@ -8,12 +8,15 @@ A Roblox reinforcement learning project, and a PyTorch wrapper for Roblox.
 Dependencies:
 
 C++
-- ASIO
+- ASIO (standalone)
 - msgpack-c
 
 Python
 - torch
 - matplotlib/plotly
+
+Roblox
+- msgpack-luau (ZarsBranchkin)
 
 =======
 
