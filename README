@@ -10,6 +10,7 @@ Dependencies:
 C++
 - ASIO
 - msgpack-c
+- libtorch
 
 Python
 - torch
@@ -29,12 +30,11 @@ TODO:
 - Low variance network latency
 - Interpreter module
 - Cybersecurity
+- PyTorch -> libtorch
 
 Notes:
-- Off-policies found to perform better since training via ROBLOX
-  worsens on-policies sample inefficiency.
-- On-policies are too highly correlated and easily leads the agent
-  to bias its action and converge to a suboptimal policy.
+- Off-policies are recommended due to sample efficiency
+  given the limited amount of HTTP requests allowed in Roblox.
 
 =======
 

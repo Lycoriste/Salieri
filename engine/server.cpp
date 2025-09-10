@@ -103,7 +103,16 @@ class Session : public std::enable_shared_from_this<Session> {
 
         auto it = endpoint_to_handle.find(req_.endpoint);
         if (it != endpoint_to_handle.end()) {
-          it->second(req_);
+          const auto& handler = it->second;
+          std::thread([handler, req=std::move(req_)]() mutable {
+            try {
+              py::gil_scoped_acquire acquire;
+              handler(req);
+              py::gil_scoped_release release;
+            } catch (std::exception& e) {
+              std::cerr << "[!] Endpoint handler threw exception: " << e.what() << std::endl;
+            }
+          }).detach(); // 2-3 years in Dagestan and forget
         } else {
           std::cerr << "[!] Failed to find endpoint.\n";
         }
@@ -146,9 +155,7 @@ class Server {
     }
 };
 
-int run() {
-  Server server(io, 8080);
+void run(int port) {
+  Server server(io, port);
   io.run();
-
-  return 0;
 }

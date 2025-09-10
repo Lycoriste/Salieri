@@ -12,7 +12,6 @@ std::atomic<bool> running {true};
 int main() {
   py::scoped_interpreter guard {false};
   init_py();
-  run();
 
   std::signal(SIGINT, [](int){
       running = false;
@@ -20,7 +19,7 @@ int main() {
   });
 
   std::thread server_thread([] {
-    run();
+    run(8080);
   });
 
   while (running) {
