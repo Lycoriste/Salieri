@@ -22,7 +22,4 @@
 #include <asio/ts/buffer.hpp>
 #include <asio/ts/internet.hpp>
 
-#define MSGPACK_NO_BOOST
 #include <msgpack.hpp>
-
-
