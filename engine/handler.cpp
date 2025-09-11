@@ -220,10 +220,13 @@ void handle_update(const HttpRequest& req) {
           }        
         } else if (key == "reward") {
           reward = agent_kv.val.as<float>();
+          has_reward = true;
         } else if (key == "done") {
           done = agent_kv.val.as<bool>();
+          has_done = true;
         } else if (key == "name") {
           model_name = agent_kv.val.as<string_view>();
+          has_name = true;
         }
 
         if (state.empty() || next_state.empty() || !has_reward || !has_done || !has_name) {
@@ -232,9 +235,10 @@ void handle_update(const HttpRequest& req) {
           continue;
         }
       }
+
       model_to_id[model_name].push_back(agent_id);
-      model_state_batch[model_name].push_back(state);
-      model_next_state_batch[model_name].push_back(next_state);
+      model_state_batch[model_name].push_back(std::move(state));
+      model_next_state_batch[model_name].push_back(std::move(next_state));
       model_reward_batch[model_name].push_back(reward);
       model_done_batch[model_name].push_back(done);
     }

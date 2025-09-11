@@ -1,4 +1,3 @@
-#include <iostream>
 #include <csignal>
 #include <atomic>
 #include <thread>
