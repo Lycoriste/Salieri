@@ -118,17 +118,19 @@ class SoftAC:
         return [float(action[0]), float(action[1] * self.max_turn)]
 
     def update(self, data):
-        next_state, reward, done = data
+        state, next_state, reward, done = data
         reward = float(reward) 
         done = bool(done)
 
-        if self.state is not None:
+        if state is not None:
+            state_tensor = torch.tensor([state], dtype=torch.float32, device=device)
+            action_tensor = self.select_action(state_tensor) # Bandaid solution
             next_state_tensor = torch.tensor([next_state], dtype=torch.float32, device=device)
             reward_tensor = torch.tensor([reward], dtype=torch.float32, device=device)
             done_tensor = torch.tensor([done], dtype=torch.bool, device=device)
 
             # Friendly Amazon package
-            package = Transition(self.state, self.action, next_state_tensor, reward_tensor, done_tensor)
+            package = Transition(state, action, next_state_tensor, reward_tensor, done_tensor)
             self.memory.push(*package)
 
         # Update statistics

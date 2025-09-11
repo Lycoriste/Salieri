@@ -242,6 +242,17 @@ void handle_update(const HttpRequest& req) {
       model_reward_batch[model_name].push_back(reward);
       model_done_batch[model_name].push_back(done);
     }
+    
+    // Nothing to send back - just update the model
+    for (const auto& [model_name, _] : model_to_id) {
+        const auto& state = model_state_batch[model_name];
+        const auto& next_state = model_next_state_batch[model_name];
+        const auto& reward = model_reward_batch[model_name];
+        const auto& done = model_done_batch[model_name];
+
+        py::tuple data = py::make_tuple(state, next_state, reward, done);
+        model_map[model_name].attr("update")();
+    }
 
   } catch (std::exception& e) {
     std::cerr << "[!] Error in handle_update: " << e.what() << std::endl;
