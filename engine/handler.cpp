@@ -29,26 +29,33 @@ void init_py() {
 void create_neural_network();
 
 // TODO: Add authentication
-void handle_start(const HttpRequest& req) {
+HttpResponse handle_start(const HttpRequest& req) {
+  std::cout << "[+] Processing session start...\n";
   string_view model_name;
+
+  HttpResponse resp {};
+  resp.status_code = HttpStatusCode::InternalServerError;
+  resp.http_version = req.http_version;
+  resp.content_length = 0;
+
   try {
     auto name_opt = get_field<string_view>(req.body_view, "name");
     if (!name_opt) {
       std::cerr << "[!] Key: [name] not found or wrong type.\n";
-      return;
+      return resp;
     }
 
     string_view model_name = *name_opt;
 
     if (model_map.find(model_name) != model_map.end()) {
       std::cout << "[*] Model already exists: " << model_name << ". Skipping initialization.\n";
-      return;
+      return resp;
     } else {
       std::cout << "[+] Created model: " << model_name << std::endl;
     }
   } catch (const std::exception& e) {
     std::cerr << "[!] Error reading model_name from payload: " << e.what() << std::endl;
-    return;
+    return resp;
   }
   
   // SoftAC by default
@@ -58,15 +65,20 @@ void handle_start(const HttpRequest& req) {
     algorithm = *algorithm_opt;
   }
 
+  std::cout << "Using " << algorithm << std::endl;
+
   auto params_opt = get_field<msgpack::object>(req.body_view, "params");
   if (!params_opt) {
     std::cerr << "[!] Missing model parameters.\n";
+    return resp;
   }
   msgpack::object params = *params_opt;
   if (params.type != msgpack::type::MAP) {
     std::cerr << "[!] Params is not a map.\n";
-    return;
+    return resp;
   }
+
+  std::cout << "Params read... creating model object." << std::endl;
   
   try {
     py::dict kwargs = msgpack_map_to_pydict(params);
@@ -74,25 +86,42 @@ void handle_start(const HttpRequest& req) {
     model_map[model_name] = agent;
   } catch (const std::exception& e) {
     std::cerr << "[!] Error creating model object at handle_start: " << e.what() << std::endl;
+    return resp;
   }
 
   // Everything works -> add server to active session 
+  std::cout << "[+] Model created successfully. Session created successfully." << std::endl;
+  resp.status_code = HttpStatusCode::Ok;
+  return resp;
 }
 
 // Resolve save file naming conflicts
-void handle_end(const HttpRequest& req) {
+HttpResponse handle_end(const HttpRequest& req) {
+  HttpResponse resp {};
+  resp.status_code = HttpStatusCode::InternalServerError;
+  resp.http_version = req.http_version;
+  resp.content_length = 0;
+  
+  return resp;
 }
 
 // [server_id: #, payload: {agent:{}}, inference: T/F]
-void handle_step(const HttpRequest& req) {
+HttpResponse handle_step(const HttpRequest& req) {
+  HttpResponse resp {};
+  resp.status_code = HttpStatusCode::InternalServerError;
+  resp.http_version = req.http_version;
+  resp.content_length = 0;
+
   try {
     auto payload_opt = get_field<msgpack::object>(req.body_view, "payload");
     if (!payload_opt) {
       std::cerr << "[!] Payload not found.\n";
+      return resp;
     }
     const msgpack::object& payload = *payload_opt;
     if (payload.type != msgpack::type::MAP) {
       std::cerr << "[!] Payload is not a map.\n";
+      return resp;
     }
 
     unordered_map<string_view, std::vector<string_view>> model_to_id {};
@@ -141,30 +170,46 @@ void handle_step(const HttpRequest& req) {
     
       if (ids.size() != py::len(actions)){
         std::cerr << "[!] Number of agents does not match number of actions returned." << std::endl;
-        return;
+        return resp;
       }
 
       for (size_t i = 0; i < ids.size(); ++i) {
         response[ids[i]] = actions[i].cast<std::vector<float>>();
       }
     }
-  
+
+    msgpack::sbuffer sbuf;
+    msgpack::pack(sbuf, response);
+    
+    resp.content = std::string(sbuf.data(), sbuf.size());
+    resp.content_length = sbuf.size();
+    resp.status_code = HttpStatusCode::Ok;
+
+    return resp;
+
   } catch (const std::exception& e) {
     std::cerr << "[!] Error in handle_step: " << e.what() << std::endl;
+    return resp;
   }
 }
 
 // Requires next_state, reward, done
-void handle_update(const HttpRequest& req) {
+HttpResponse handle_update(const HttpRequest& req) {
+  HttpResponse resp {};
+  resp.http_version = req.http_version;
+  resp.status_code = HttpStatusCode::InternalServerError;
+  resp.content_length = 0;
+
   try {
     auto payload_opt = get_field<msgpack::object>(req.body_view, "payload");
     if (!payload_opt) {
       std::cerr << "[!] Payload not found.\n";
-      return;
+      return resp;
     }
     const msgpack::object& payload = *payload_opt;
     if (payload.type != msgpack::type::MAP) {
       std::cerr << "[!] Payload is not a map.\n";
+      return resp;
     }
 
     unordered_map<string_view, std::vector<string_view>> model_to_id {};
@@ -253,9 +298,12 @@ void handle_update(const HttpRequest& req) {
         py::tuple data = py::make_tuple(state, next_state, reward, done);
         model_map[model_name].attr("update")();
     }
+    
+    resp.status_code = HttpStatusCode::Ok;
+    return resp;
 
   } catch (std::exception& e) {
     std::cerr << "[!] Error in handle_update: " << e.what() << std::endl;
-    return;
+    return resp;
   }
 }

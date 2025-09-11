@@ -27,7 +27,9 @@ struct HttpRequest {
 
 struct HttpResponse {
   std::string http_version {};
-  std::string status_code {};
+  HttpStatusCode status_code {};
   std::size_t content_length {};
-  msgpack::object content {};
+  std::string content {};
 };
+
+
