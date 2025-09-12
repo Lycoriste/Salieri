@@ -30,17 +30,13 @@ msgpack::object* get_ref(const msgpack::object& obj, const std::string_view key)
 }
 
 // Get req to keep object_handle alive
-py::dict msgpack_map_to_pydict(const msgpack::object_handle& handle, const msgpack::object& obj) {
+py::dict msgpack_map_to_pydict(const msgpack::object& obj) {
   py::dict res;
-  std::cout << "Running msgpack_to_pydict." << std::endl;
-  std::cout << "Object pointer: " << &obj << std::endl;
 
   if (obj.type != msgpack::type::MAP) {
     std::cerr << "[!] Params is not a map.\n";
     return res;
   }
-
-  std::cout << "Entering loop" << std::endl;
 
   for (uint32_t i = 0; i < obj.via.map.size; ++i) {
     const msgpack::object_kv& kv = obj.via.map.ptr[i];
@@ -48,7 +44,6 @@ py::dict msgpack_map_to_pydict(const msgpack::object_handle& handle, const msgpa
     // String keys only for explicit-ness (is that a word?)
     if (kv.key.type != msgpack::type::STR) continue;
     string_view key(kv.key.via.str.ptr, kv.key.via.str.size);
-    std::cout << "[*] Key: " << key << std::endl;
     py::str key_ = py::str(key.data(), key.size());
 
     // Convert value depending on type
@@ -70,7 +65,7 @@ py::dict msgpack_map_to_pydict(const msgpack::object_handle& handle, const msgpa
       case msgpack::type::MAP:
         // Recursion in case it's nested - highly unlikely and not recommended
         std::cerr << "[!] Map hit: dangerous operation.\n";
-        res[key_] = msgpack_map_to_pydict(handle, kv.val);         
+        res[key_] = msgpack_map_to_pydict(kv.val);         
         break;
       default:
         std::cerr << "[!] Unsupported type for key: " << key << std::endl;

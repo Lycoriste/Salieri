@@ -97,9 +97,9 @@ class Session : public std::enable_shared_from_this<Session> {
 
         if (auto server_id_opt = get_field<int>(req_.body_view, "server_id")) {
             int server_id = *server_id_opt;
-            std::cout << "server_id: " << server_id << std::endl;
+            std::cout << "[*] Server id: " << server_id << std::endl;
         } else {
-            std::cerr << "server_id not found or not an int!" << std::endl;
+            std::cerr << "[!] server_id not found or not an int." << std::endl;
         }
 
         auto it = endpoint_to_handle.find(req_.endpoint);
@@ -113,17 +113,6 @@ class Session : public std::enable_shared_from_this<Session> {
           } catch (std::exception& e) {
             std::cerr << "[!] Endpoint handler threw exception: " << e.what() << std::endl;
           }
-
-          //std::thread ([self, handler, req=std::move(req_)]() mutable {
-          //  try {
-          //    py::gil_scoped_acquire acquire;
-          //    HttpResponse response = handler(req);
-          //    self->send_response(response);
-
-          //  } catch (std::exception& e) {
-          //    std::cerr << "[!] Endpoint handler threw exception: " << e.what() << std::endl;
-          //  }
-          //}).detach(); // 2-3 years in Dagestan and forget
         } else {
           std::cerr << "[!] Failed to find endpoint.\n";
         }
@@ -186,7 +175,7 @@ class Server {
       acceptor_.async_accept([this](std::error_code ec, tcp::socket socket) {
         if (!ec) {
           std::make_shared<Session>(std::move(socket))->start();
-          std::cout << "[+] Client connected\n";
+          std::cout << "[+] Request accepted.\n";
         }
         do_accept();
       });

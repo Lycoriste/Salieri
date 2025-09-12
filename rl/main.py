@@ -75,7 +75,7 @@ async def receive_init_params(request: AgentData):
     Update: receive next_state after taking action and updates policy (if steps == batch_size)
 """
 @app.post("/rl/step")
-async def receive_data(request: Observation):
+async def step(request: Observation):
     try:
         action = AGENT.step(request.state, deterministic=inference)
         return JSONResponse(content={"action": action})
@@ -84,7 +84,7 @@ async def receive_data(request: Observation):
         raise HTTPException(status_code=400, detail=str(e))
     
 @app.post("/rl/update")
-async def receive_data(request: Experience):
+async def update(request: Experience):
     try:
         AGENT.update((request.next_state, request.reward, request.done))
     except Exception as e:

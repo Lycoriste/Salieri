@@ -28,5 +28,4 @@ std::optional<T> get_field(const msgpack::object& obj, const std::string_view ke
 }
 
 msgpack::object* get_ref(const msgpack::object& obj, const std::string_view key);
-
-pybind11::dict msgpack_map_to_pydict(const msgpack::object_handle& handle, const msgpack::object& obj);
+pybind11::dict msgpack_map_to_pydict(const msgpack::object& obj);

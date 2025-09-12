@@ -1,6 +1,9 @@
 #include "net_common.h"
 #include "http.h"
 #include "mputil.h"
+#include "debug.h"
+#include <pybind11/numpy.h>
+#include <pybind11/stl.h>
 
 template<typename key, typename val>
 using unordered_map = std::unordered_map<key, val>;
@@ -9,8 +12,8 @@ using string_view = std::string_view;
 namespace py = pybind11;
 
 // Maps user model name -> agent object
-unordered_map<string_view, py::object> model_map {};
-unordered_map<string_view, unordered_map<string, string>> model_metadata;
+unordered_map<string, py::object> model_map {};
+unordered_map<string, unordered_map<string, string>> model_metadata;
 py::object sys_m;
 py::object torch_m;
 py::object soft_ac_m;
@@ -28,13 +31,14 @@ void create_neural_network();
 
 // TODO: Add authentication
 HttpResponse handle_start(const HttpRequest& req) {
-  std::cout << "[+] Processing session start...\n";
-  string_view model_name;
+  std::cout << "[+] Checking startup parameters...\n";
+  string model_name;
 
   HttpResponse resp {};
   resp.status_code = HttpStatusCode::InternalServerError;
   resp.http_version = req.http_version;
   resp.content_length = 0;
+  bool has_model = false;
 
   try {
     auto name_opt = get_field<string_view>(req.body_view, "name");
@@ -43,10 +47,11 @@ HttpResponse handle_start(const HttpRequest& req) {
       return resp;
     }
 
-    string_view model_name = *name_opt;
+    model_name = *name_opt;
 
     if (model_map.find(model_name) != model_map.end()) {
       std::cout << "[*] Model already exists: " << model_name << ". Skipping initialization.\n";
+      has_model = true;
       return resp;
     }
   } catch (const std::exception& e) {
@@ -54,40 +59,37 @@ HttpResponse handle_start(const HttpRequest& req) {
     return resp;
   }
   
-  // SoftAC by default
-  string algorithm = "SoftAC";
-  auto algorithm_opt = get_field<string>(req.body_view, "algorithm");
-  if (algorithm_opt) {
-    algorithm = *algorithm_opt;
-  }
+  if (!has_model) {
+    // SoftAC by default
+    string algorithm = "SoftAC";
+    auto algorithm_opt = get_field<string>(req.body_view, "algorithm");
+    if (algorithm_opt) {
+      algorithm = *algorithm_opt;
+    }
 
-  std::cout << "[*] Using " << algorithm << std::endl;
-
-  msgpack::object* params = get_ref(req.body_view, "params");
-  if (params == nullptr) {
-    std::cerr << "[!] Missing model parameters.\n";
-    return resp;
-  }
-  if (params->type != msgpack::type::MAP) {
-    std::cerr << "[!] Params is not a map.\n";
-    return resp;
-  }
-  
-  py::dict tmp;
-
-  std::cout << "[*] Params map size: " << params->via.map.size << std::endl;
-  
-  try {
-    py::dict kwargs = msgpack_map_to_pydict(req.body_handle, *params);
-    // py::object agent = soft_ac_m.attr("SoftAC")(**kwargs);
-    // model_map[model_name] = agent;
-  } catch (const std::exception& e) {
-    std::cerr << "[!] Error creating model object at handle_start: " << e.what() << std::endl;
-    return resp;
+    auto params_opt = get_field<msgpack::object>(req.body_view, "params");
+    if (!params_opt) {
+      std::cerr << "[!] Missing model parameters.\n";
+      return resp;
+    }
+    msgpack::object& params = *params_opt;
+    if (params.type != msgpack::type::MAP) {
+      std::cerr << "[!] Params is not a map.\n";
+      return resp;
+    }
+    
+    try {
+      py::dict kwargs = msgpack_map_to_pydict(params);
+      py::object agent = soft_ac_m.attr("SoftAC")(**kwargs);
+      model_map[model_name] = agent;
+    } catch (const std::exception& e) {
+      std::cerr << "[!] Error creating model object at handle_start: " << e.what() << std::endl;
+      return resp;
+    }
   }
 
   // Everything works -> add server to active session 
-  std::cout << "[+] Model created successfully. Session created successfully." << std::endl;
+  std::cout << "[+] Session created successfully." << std::endl;
   resp.status_code = HttpStatusCode::Ok;
   return resp;
 }
@@ -121,8 +123,8 @@ HttpResponse handle_step(const HttpRequest& req) {
       return resp;
     }
 
-    unordered_map<string_view, std::vector<string_view>> model_to_id {};
-    unordered_map<string_view, std::vector<std::vector<float>>> model_batch {};
+    unordered_map<string, std::vector<string_view>> model_to_id {};
+    unordered_map<string, std::vector<std::vector<float>>> model_batch {};
     
     for (uint32_t i = 0; i < payload.via.map.size; ++i) {
       const msgpack::object_kv& kv = payload.via.map.ptr[i];
@@ -142,7 +144,7 @@ HttpResponse handle_step(const HttpRequest& req) {
         continue;
       }
 
-      auto name_opt = get_field<string_view>(agent_params, "name");
+      auto name_opt = get_field<string>(agent_params, "name");
       if (!name_opt) {
         std::cerr << "[!] Missing model name for agent " << agent_id << std::endl;
         continue;
@@ -151,6 +153,8 @@ HttpResponse handle_step(const HttpRequest& req) {
       model_to_id[*name_opt].push_back(agent_id);
       model_batch[*name_opt].push_back(*state_opt);
     }
+
+    pass("Batched states to respective models.");
     
     // Inference mode is a global setting
     bool inference_flag = false;
@@ -162,7 +166,24 @@ HttpResponse handle_step(const HttpRequest& req) {
     unordered_map<string_view, std::vector<float>> response {};
 
     for (const auto& [model, state_batch] : model_batch) {
-      const py::list& actions = model_map[model].attr("step")(state_batch, inference_flag);
+      print_mat(state_batch);
+      py::array_t<float> mat = vec_to_numpy(state_batch);
+      pass("vec_to_numpy ran successfully.");
+
+      auto model_it = model_map.find(model);
+      if (model_it == model_map.end()) {
+        err("Model " + string(model) + " is not found in map.");
+        return resp;
+      }
+      pass("Model " + string(model) + " is found in map.");
+
+      if (model_it->second.is_none()) {
+        err("Model " + string(model) + " is no longer a valid Python object.");
+        return resp;
+      }
+      pass("Model " + string(model) + " exists in memory.");
+
+      const py::list& actions = model_map[model].attr("step")(mat, inference_flag);
       const auto& ids = model_to_id[model];
     
       if (ids.size() != py::len(actions)){
@@ -170,8 +191,11 @@ HttpResponse handle_step(const HttpRequest& req) {
         return resp;
       }
 
+      pass("Action inference passed.");
+      std::vector<std::vector<float>> actions_vec = actions.cast<std::vector<std::vector<float>>>();
+
       for (size_t i = 0; i < ids.size(); ++i) {
-        response[ids[i]] = actions[i].cast<std::vector<float>>();
+        response[ids[i]] = actions_vec[i];
       }
     }
 
@@ -185,7 +209,7 @@ HttpResponse handle_step(const HttpRequest& req) {
     return resp;
 
   } catch (const std::exception& e) {
-    std::cerr << "[!] Error in handle_step: " << e.what() << std::endl;
+    std::cerr << "\033[31m[!] Error in handle_step: " << e.what() << "\033[0m" << std::endl;
     return resp;
   }
 }
@@ -293,7 +317,7 @@ HttpResponse handle_update(const HttpRequest& req) {
         const auto& done = model_done_batch[model_name];
 
         py::tuple data = py::make_tuple(state, next_state, reward, done);
-        model_map[model_name].attr("update")();
+        model_map[string(model_name)].attr("update")();
     }
     
     resp.status_code = HttpStatusCode::Ok;
