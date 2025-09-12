@@ -16,13 +16,11 @@ py::object torch_m;
 py::object soft_ac_m;
 
 void init_py() {
-  py::gil_scoped_acquire acquire;
   sys_m = py::module_::import("sys");
   sys_m.attr("path").attr("insert")(0, "..");
 
   torch_m = py::module_::import("torch");
   soft_ac_m = py::module::import("rl.soft_ac");
-  py::gil_scoped_release release;
 }
 
 // TODO: Figure out the msgpack formatting for designing NNs
@@ -50,8 +48,6 @@ HttpResponse handle_start(const HttpRequest& req) {
     if (model_map.find(model_name) != model_map.end()) {
       std::cout << "[*] Model already exists: " << model_name << ". Skipping initialization.\n";
       return resp;
-    } else {
-      std::cout << "[+] Created model: " << model_name << std::endl;
     }
   } catch (const std::exception& e) {
     std::cerr << "[!] Error reading model_name from payload: " << e.what() << std::endl;
@@ -65,25 +61,26 @@ HttpResponse handle_start(const HttpRequest& req) {
     algorithm = *algorithm_opt;
   }
 
-  std::cout << "Using " << algorithm << std::endl;
+  std::cout << "[*] Using " << algorithm << std::endl;
 
-  auto params_opt = get_field<msgpack::object>(req.body_view, "params");
-  if (!params_opt) {
+  msgpack::object* params = get_ref(req.body_view, "params");
+  if (params == nullptr) {
     std::cerr << "[!] Missing model parameters.\n";
     return resp;
   }
-  msgpack::object params = *params_opt;
-  if (params.type != msgpack::type::MAP) {
+  if (params->type != msgpack::type::MAP) {
     std::cerr << "[!] Params is not a map.\n";
     return resp;
   }
+  
+  py::dict tmp;
 
-  std::cout << "Params read... creating model object." << std::endl;
+  std::cout << "[*] Params map size: " << params->via.map.size << std::endl;
   
   try {
-    py::dict kwargs = msgpack_map_to_pydict(params);
-    py::object agent = soft_ac_m.attr("SoftAC")(**kwargs);
-    model_map[model_name] = agent;
+    py::dict kwargs = msgpack_map_to_pydict(req.body_handle, *params);
+    // py::object agent = soft_ac_m.attr("SoftAC")(**kwargs);
+    // model_map[model_name] = agent;
   } catch (const std::exception& e) {
     std::cerr << "[!] Error creating model object at handle_start: " << e.what() << std::endl;
     return resp;

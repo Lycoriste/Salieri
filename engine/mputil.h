@@ -6,7 +6,7 @@
 
 // msgpack zero-copy view
 template<typename T>
-std::optional<T> get_field(const msgpack::object& obj, const std::string_view& key) {
+std::optional<T> get_field(const msgpack::object& obj, const std::string_view key) {
   if (obj.type != msgpack::type::MAP) return std::nullopt;
   msgpack::object_kv* p = obj.via.map.ptr;
   msgpack::object_kv* const pend = obj.via.map.ptr + obj.via.map.size;
@@ -27,4 +27,6 @@ std::optional<T> get_field(const msgpack::object& obj, const std::string_view& k
   return std::nullopt;
 }
 
-pybind11::dict msgpack_map_to_pydict(const msgpack::object& obj);
+msgpack::object* get_ref(const msgpack::object& obj, const std::string_view key);
+
+pybind11::dict msgpack_map_to_pydict(const msgpack::object_handle& handle, const msgpack::object& obj);

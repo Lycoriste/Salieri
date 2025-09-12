@@ -1,38 +1,76 @@
 #include "net_common.h"
+#include <iostream>
+#include <optional>
+#include <msgpack.hpp>
+#include "mputil.h"
 namespace py = pybind11;
 using string = std::string;
 using string_view = std::string_view;
 
-py::dict msgpack_map_to_pydict(const msgpack::object& obj) {
+
+
+msgpack::object* get_ref(const msgpack::object& obj, const std::string_view key) {
+  if (obj.type != msgpack::type::MAP) return nullptr;
+  msgpack::object_kv* p = obj.via.map.ptr;
+  msgpack::object_kv* const pend = obj.via.map.ptr + obj.via.map.size;
+  
+  for (; p < pend; ++p) {
+    if (p->key.type == msgpack::type::STR) {
+      std::string_view field_key(p->key.via.str.ptr, p->key.via.str.size);
+      if (field_key == key) {
+        try {
+          return &p->val;
+        } catch (std::exception& e) {
+          std::cerr << "[!] Error getting field from msgpack: " << e.what() << std::endl;
+        }
+      }
+    }
+  }
+  return nullptr; 
+}
+
+// Get req to keep object_handle alive
+py::dict msgpack_map_to_pydict(const msgpack::object_handle& handle, const msgpack::object& obj) {
   py::dict res;
-  if (obj.type != msgpack::type::MAP) return res;
+  std::cout << "Running msgpack_to_pydict." << std::endl;
+  std::cout << "Object pointer: " << &obj << std::endl;
+
+  if (obj.type != msgpack::type::MAP) {
+    std::cerr << "[!] Params is not a map.\n";
+    return res;
+  }
+
+  std::cout << "Entering loop" << std::endl;
 
   for (uint32_t i = 0; i < obj.via.map.size; ++i) {
     const msgpack::object_kv& kv = obj.via.map.ptr[i];
 
-    // Only support string keys
+    // String keys only for explicit-ness (is that a word?)
     if (kv.key.type != msgpack::type::STR) continue;
     string_view key(kv.key.via.str.ptr, kv.key.via.str.size);
+    std::cout << "[*] Key: " << key << std::endl;
+    py::str key_ = py::str(key.data(), key.size());
 
     // Convert value depending on type
+    // Python types only to avoid segfault
     switch (kv.val.type) {
       case msgpack::type::POSITIVE_INTEGER:
-        res[py::str(key)] = static_cast<int>(kv.val.as<uint64_t>());
-        break;
       case msgpack::type::NEGATIVE_INTEGER:
-        res[py::str(key)] = kv.val.as<int64_t>();
+        res[key_] = py::int_(kv.val.as<uint64_t>());
         break;
       case msgpack::type::FLOAT32:
       case msgpack::type::FLOAT64:
-        res[py::str(key)] = kv.val.as<double>();
+        res[key_] = py::float_(kv.val.as<double>());
         break;
       case msgpack::type::STR: {
-        string_view val_str(kv.val.via.str.ptr, kv.val.via.str.size);
-        res[py::str(key)] = string(val_str); // copy into Python
+        string_view val_view(kv.val.via.str.ptr, kv.val.via.str.size);
+        res[key_] = py::str(val_view.data(), val_view.size());
         break;
       }
       case msgpack::type::MAP:
-        res[py::str(key)] = msgpack_map_to_pydict(kv.val); // recursive if needed
+        // Recursion in case it's nested - highly unlikely and not recommended
+        std::cerr << "[!] Map hit: dangerous operation.\n";
+        res[key_] = msgpack_map_to_pydict(handle, kv.val);         
         break;
       default:
         std::cerr << "[!] Unsupported type for key: " << key << std::endl;

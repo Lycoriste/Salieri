@@ -108,14 +108,11 @@ class Session : public std::enable_shared_from_this<Session> {
           const auto& handler = it->second;
 
           try {
-            py::gil_scoped_acquire acquire;
             HttpResponse response = handler(req_);
             self->send_response(response);
-
           } catch (std::exception& e) {
             std::cerr << "[!] Endpoint handler threw exception: " << e.what() << std::endl;
           }
-
 
           //std::thread ([self, handler, req=std::move(req_)]() mutable {
           //  try {
