@@ -7,7 +7,7 @@ inline void err(std::string_view message) {
 }
 
 inline void warn(std::string_view message) {
-  std::cout << "\033[36m[-] " << message << "\033[0m" << std::endl;
+  std::cout << "\033[33m[-] " << message << "\033[0m" << std::endl;
 }
 
 inline void pass(std::string_view message) {
@@ -50,3 +50,4 @@ inline pybind11::array_t<float> vec_to_numpy(const std::vector<std::vector<float
   }
   return arr;
 }
+

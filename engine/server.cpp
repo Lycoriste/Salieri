@@ -2,6 +2,7 @@
 #include "http.h"
 #include "handler.h"
 #include "mputil.h"
+#include "debug.h"
 #include "session_manager.h"
 
 using asio::ip::tcp;
@@ -91,7 +92,7 @@ class Session : public std::enable_shared_from_this<Session> {
         req_.body_view = req_.body_handle.get();
 
         if (req_.body_view.type != msgpack::type::MAP) {
-            std::cerr << "[!] Invalid message format\n";
+            err("Invalid message format.");
             return;
         }
 
@@ -114,7 +115,7 @@ class Session : public std::enable_shared_from_this<Session> {
             std::cerr << "[!] Endpoint handler threw exception: " << e.what() << std::endl;
           }
         } else {
-          std::cerr << "[!] Failed to find endpoint.\n";
+          err("Failed to find endpoint.");
         }
 
       } catch (const std::exception& e) {
@@ -127,14 +128,15 @@ class Session : public std::enable_shared_from_this<Session> {
       auto self(shared_from_this());
       std::string serialized_resp = serialize_response(resp);
       auto endpoint = socket_.remote_endpoint();
-      std::cout << "[+] Sending response to "
+
+      std::cout << "\033[33m[*] Sending response to "
                 << endpoint.address().to_string()
-                << ":" << endpoint.port() << std::endl;
+                << ":" << endpoint.port() << "\033[0m" << std::endl;
 
       asio::async_write(socket_, asio::buffer(serialized_resp),
       [this, self](std::error_code ec, std::size_t length) {
         if (!ec) {
-          std::cout << "[+] Response sent" << std::endl;
+          pass("Response sent successfully.");
           socket_.close();
         }
       });
@@ -142,7 +144,6 @@ class Session : public std::enable_shared_from_this<Session> {
 
     std::string serialize_response(const HttpResponse& resp) {
       std::string result;
-
       std::string status_text;
       switch(resp.status_code) {
           case HttpStatusCode::Ok: status_text = "200 OK"; break;
@@ -153,7 +154,9 @@ class Session : public std::enable_shared_from_this<Session> {
       }
 
       result += "HTTP/1.1 " + status_text + "\r\n";
-      result += "Content-Length: " + std::to_string(resp.content_length) + "\r\n";
+      // Roblox only takes JSON -- don't know how to handle yet but will leave it ambiguous
+      result += "Content-Type: application/json\r\n";
+      result += "Content-Length: " + std::to_string(resp.content.size()) + "\r\n";
       result += "\r\n";
       result += resp.content;
 

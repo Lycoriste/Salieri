@@ -9,7 +9,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Normal, TransformedDistribution, TanhTransform, Bernoulli
 from .replay_memory import PriorityReplay, Transition
-from .corippling_network import COR_Actor, COR_Critic
+# from .corippling_network import COR_Actor, COR_Critic
 
 import numpy as np
 

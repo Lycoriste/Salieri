@@ -52,6 +52,7 @@ HttpResponse handle_start(const HttpRequest& req) {
     if (model_map.find(model_name) != model_map.end()) {
       std::cout << "[*] Model already exists: " << model_name << ". Skipping initialization.\n";
       has_model = true;
+      resp.status_code = HttpStatusCode::Ok;
       return resp;
     }
   } catch (const std::exception& e) {
@@ -123,7 +124,7 @@ HttpResponse handle_step(const HttpRequest& req) {
       return resp;
     }
 
-    unordered_map<string, std::vector<string_view>> model_to_id {};
+    unordered_map<string, std::vector<string>> model_to_id {};
     unordered_map<string, std::vector<std::vector<float>>> model_batch {};
     
     for (uint32_t i = 0; i < payload.via.map.size; ++i) {
@@ -134,7 +135,7 @@ HttpResponse handle_step(const HttpRequest& req) {
       }
       
       // agent_id guaranteed to be unique
-      string_view agent_id(kv.key.via.str.ptr, kv.key.via.str.size);
+      string agent_id(kv.key.via.str.ptr, kv.key.via.str.size);
       const msgpack::object& agent_params = kv.val;
 
       // Potential overhead - review get_field
@@ -163,7 +164,7 @@ HttpResponse handle_step(const HttpRequest& req) {
       inference_flag = *inference_opt;
     }
     
-    unordered_map<string_view, std::vector<float>> response {};
+    unordered_map<string, std::vector<float>> response {};
 
     for (const auto& [model, state_batch] : model_batch) {
       print_mat(state_batch);
@@ -187,7 +188,7 @@ HttpResponse handle_step(const HttpRequest& req) {
       const auto& ids = model_to_id[model];
     
       if (ids.size() != py::len(actions)){
-        std::cerr << "[!] Number of agents does not match number of actions returned." << std::endl;
+        err("Number of agents does not match number of actions returned.");
         return resp;
       }
 
@@ -224,12 +225,12 @@ HttpResponse handle_update(const HttpRequest& req) {
   try {
     auto payload_opt = get_field<msgpack::object>(req.body_view, "payload");
     if (!payload_opt) {
-      std::cerr << "[!] Payload not found.\n";
+      err("Payload not found.");
       return resp;
     }
     const msgpack::object& payload = *payload_opt;
     if (payload.type != msgpack::type::MAP) {
-      std::cerr << "[!] Payload is not a map.\n";
+      err("Payload is not a map.");
       return resp;
     }
 
@@ -242,7 +243,7 @@ HttpResponse handle_update(const HttpRequest& req) {
     for (uint32_t i = 0; i < payload.via.map.size; ++i) {
       const msgpack::object_kv& kv = payload.via.map.ptr[i];
       if (kv.key.type != msgpack::type::STR) {
-        std::cerr << "[!] Non-string key in payload.\n";
+        err("Non-string key in payload.");
         continue;
       }
 
@@ -263,7 +264,7 @@ HttpResponse handle_update(const HttpRequest& req) {
       for (uint32_t j = 0; j < agent_info.via.map.size; ++j) {
         const msgpack::object_kv& agent_kv = agent_info.via.map.ptr[j];
         if (agent_kv.key.type != msgpack::type::STR) {
-          std::cerr << "[!] Non-string key in payload.\n";
+          err("Non-string key in payload.");
           continue;
         }
 
@@ -296,7 +297,7 @@ HttpResponse handle_update(const HttpRequest& req) {
         }
 
         if (state.empty() || next_state.empty() || !has_reward || !has_done || !has_name) {
-          std::cerr << "[!] Missing one of the following arguments: state, next_state, reward, done, or name.\n";
+          err("Missing one of the following arguments: state, next_state, reward, done, or name.");
           std::cerr << " └── Information is missing from agent: " << agent_id << std::endl;
           continue;
         }
