@@ -9,7 +9,9 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Normal, TransformedDistribution, TanhTransform, Bernoulli
 from .replay_memory import PriorityReplay, Transition
-from .corippling_network import COR_Actor, COR_Critic
+# from .corippling_network import COR_Actor, COR_Critic
+
+import numpy as np
 
 device = torch.device(
     "cuda" if torch.cuda.is_available() else
@@ -105,36 +107,52 @@ class SoftAC:
         return action
 
     def step(self, state, deterministic=False):
-        state_tensor = torch.tensor([state], dtype=torch.float32, device=device)
+        state_tensor = torch.tensor(state, dtype=torch.float32, device=device)
+        batch = state_tensor.ndim == 2
+        if not batch:
+            state_tensor = state_tensor.unsqueeze(0)
         action_tensor = self.select_action(state_tensor, deterministic)
         
         self.state = state_tensor
         self.action = action_tensor
         
-       # Return action but scaled
-       # NOTE: Turning is always unscaled when training
+        # Return action but scaled
+        # NOTE: Turning is always unscaled when training
         action = action_tensor.squeeze(0).tolist()
+        if not batch:
+            action = action_tensor.squeeze(0).tolist()
+            out = [float(action[0]), float(action[1] * self.max_turn)]
+            print(f"Action: {out}")
+            return out
 
-        return [float(action[0]), float(action[1] * self.max_turn)]
+        actions = []
+        for act in action_tensor:
+            act = act.tolist()
+            actions.append([float(act[0]), float(act[1] * self.max_turn)])
+        return actions
 
     def update(self, data):
-        state, next_state, reward, done = data
-        reward = float(reward) 
-        done = bool(done)
+        state, action, next_state, reward, done = data
+
+        print(state)
+        print(action)
+        print(next_state)
+        print(reward)
+        print(done)
 
         if state is not None:
-            state_tensor = torch.tensor([state], dtype=torch.float32, device=device)
-            action_tensor = self.select_action(state_tensor) # Bandaid solution
-            next_state_tensor = torch.tensor([next_state], dtype=torch.float32, device=device)
-            reward_tensor = torch.tensor([reward], dtype=torch.float32, device=device)
-            done_tensor = torch.tensor([done], dtype=torch.bool, device=device)
+            state_tensor = torch.tensor(state, dtype=torch.float32, device=device)
+            action_tensor = torch.tensor(action, dtype=torch.float32, device=device) # Bandaid solution
+            next_state_tensor = torch.tensor(next_state, dtype=torch.float32, device=device)
+            reward_tensor = torch.tensor(reward, dtype=torch.float32, device=device)
+            done_tensor = torch.tensor(done, dtype=torch.bool, device=device)
 
             # Friendly Amazon package
-            package = Transition(state, action, next_state_tensor, reward_tensor, done_tensor)
+            package = Transition(state_tensor, action_tensor, next_state_tensor, reward_tensor, done_tensor)
             self.memory.push(*package)
 
         # Update statistics
-        self.episode_reward[self.episodes_total] += reward
+        self.episode_reward[self.episodes_total] += sum(reward)
         self.episode_length[self.episodes_total] += 1
         self.steps += 1
 
@@ -158,7 +176,7 @@ class SoftAC:
         self.critic_a.train()
         self.critic_b.train()
 
-        experiences, indices, weights = self.memory.sample(self.batch_size)
+        experiences, _, _ = self.memory.sample(self.batch_size)
         batch = Transition(*zip(*experiences))
 
         state_batch = torch.cat(batch.state)
@@ -204,11 +222,11 @@ class SoftAC:
 
         self.update_counter += 1
 
-    def _compute_critic_loss(self, 
-                             state_batch, 
-                             action_batch, 
-                             reward_batch, 
-                             next_state_batch, 
+    def _compute_critic_loss(self,
+                             state_batch,
+                             action_batch,
+                             reward_batch,
+                             next_state_batch,
                              done_batch
         ):
         with torch.no_grad():

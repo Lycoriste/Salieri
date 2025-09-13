@@ -9,16 +9,19 @@ namespace py = pybind11;
 
 std::atomic<bool> running {true};
 
-int main() {
-  py::scoped_interpreter guard {false};
-  init_py();
-
-  std::signal(SIGINT, [](int){
+void signal_handler(int sig) {
       running = false;
+      std::cout.flush();
       io.stop();
-  });
+}
+
+int main() {
+  std::signal(SIGINT, signal_handler);
+  std::signal(SIGTERM, signal_handler);
 
   std::thread server_thread([] {
+    py::scoped_interpreter guard{true};
+    init_py();
     run(8080);
   });
 
