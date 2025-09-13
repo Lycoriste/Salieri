@@ -234,11 +234,12 @@ HttpResponse handle_update(const HttpRequest& req) {
       return resp;
     }
 
-    unordered_map<string_view, std::vector<string_view>> model_to_id {};
-    unordered_map<string_view, std::vector<std::vector<float>>> model_state_batch {};
-    unordered_map<string_view, std::vector<std::vector<float>>> model_next_state_batch {};
-    unordered_map<string_view, std::vector<float>> model_reward_batch {};
-    unordered_map<string_view, std::vector<bool>> model_done_batch {};
+    unordered_map<string, std::vector<string_view>> model_to_id {};
+    unordered_map<string, std::vector<std::vector<float>>> model_state_batch {};
+    unordered_map<string, std::vector<std::vector<float>>> model_action_batch {};
+    unordered_map<string, std::vector<std::vector<float>>> model_next_state_batch {};
+    unordered_map<string, std::vector<float>> model_reward_batch {};
+    unordered_map<string, std::vector<bool>> model_done_batch {};
     
     for (uint32_t i = 0; i < payload.via.map.size; ++i) {
       const msgpack::object_kv& kv = payload.via.map.ptr[i];
@@ -250,8 +251,9 @@ HttpResponse handle_update(const HttpRequest& req) {
       string_view agent_id(kv.key.via.str.ptr, kv.key.via.str.size);
       const msgpack::object& agent_info = kv.val;
         
-      string_view model_name {};
+      string model_name {};
       std::vector<float> state {};
+      std::vector<float> action {};
       std::vector<float> next_state {};
       float reward {};
       bool done {};
@@ -270,21 +272,32 @@ HttpResponse handle_update(const HttpRequest& req) {
 
         string_view key(agent_kv.key.via.str.ptr, agent_kv.key.via.str.size);
         const msgpack::object& val = agent_info.via.map.ptr[j].val;
-
+        
+        // I'm sorry for this monstrosity
         if (key == "state") {
-          size_t n = val.via.array.size;
-          const msgpack::object* ptr = val.via.array.ptr;
-          state.resize(n);
-          for (size_t k = 0; k < n; ++k) {
-            state[k] = ptr[k].as<float>();
+          if (val.type == msgpack::type::ARRAY) {
+            state = val.as<std::vector<float>>();
+            pass("State passed.");
+          } else {
+            state = { val.as<float>() };
           }
+
+        } else if (key == "action") {
+          if (val.type == msgpack::type::ARRAY) {
+            action = val.as<std::vector<float>>();
+            pass("Action passed.");
+          } else {
+            action = { val.as<float>() };
+          }
+
         } else if (key == "next_state") {
-          size_t n = val.via.array.size;
-          const msgpack::object* ptr = val.via.array.ptr;
-          next_state.resize(n);
-          for (size_t k = 0; k < n; ++k) {
-            next_state[k] = ptr[k].as<float>();
-          }        
+          if (val.type == msgpack::type::ARRAY) {
+            next_state = val.as<std::vector<float>>();
+            pass("Next_state passed.");
+          } else {
+            next_state = { val.as<float>() };
+          }
+
         } else if (key == "reward") {
           reward = agent_kv.val.as<float>();
           has_reward = true;
@@ -295,16 +308,28 @@ HttpResponse handle_update(const HttpRequest& req) {
           model_name = agent_kv.val.as<string_view>();
           has_name = true;
         }
+      }
 
-        if (state.empty() || next_state.empty() || !has_reward || !has_done || !has_name) {
+      if (state.empty() || action.empty() || next_state.empty() || !has_reward || !has_done || !has_name) {
           err("Missing one of the following arguments: state, next_state, reward, done, or name.");
-          std::cerr << " └── Information is missing from agent: " << agent_id << std::endl;
+          if (state.empty())
+            std::cerr << " └── state is missing from agent: " << agent_id << std::endl;
+          if (action.empty())
+            std::cerr << " └── action is missing from agent: " << agent_id << std::endl;
+          if (next_state.empty())
+            std::cerr << " └── next_state is missing from agent: " << agent_id << std::endl;
+          if (!has_reward)
+            std::cerr << " └── reward is missing from agent: " << agent_id << std::endl;
+          if (!has_done)
+            std::cerr << " └── done is missing from agent: " << agent_id << std::endl;
+          if (!has_name)
+            std::cerr << " └── name is missing from agent: " << agent_id << std::endl;
           continue;
-        }
       }
 
       model_to_id[model_name].push_back(agent_id);
       model_state_batch[model_name].push_back(std::move(state));
+      model_action_batch[model_name].push_back(std::move(action));
       model_next_state_batch[model_name].push_back(std::move(next_state));
       model_reward_batch[model_name].push_back(reward);
       model_done_batch[model_name].push_back(done);
@@ -313,12 +338,13 @@ HttpResponse handle_update(const HttpRequest& req) {
     // Nothing to send back - just update the model
     for (const auto& [model_name, _] : model_to_id) {
         const auto& state = model_state_batch[model_name];
+        const auto& action = model_action_batch[model_name];
         const auto& next_state = model_next_state_batch[model_name];
         const auto& reward = model_reward_batch[model_name];
         const auto& done = model_done_batch[model_name];
 
-        py::tuple data = py::make_tuple(state, next_state, reward, done);
-        model_map[string(model_name)].attr("update")();
+        py::tuple data = py::make_tuple(state, action, next_state, reward, done);
+        model_map[model_name].attr("update")(data);
     }
     
     resp.status_code = HttpStatusCode::Ok;
