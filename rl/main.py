@@ -12,10 +12,15 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Union
 from soft_ac import SoftAC
 import logging
 import traceback
 
+from threading import Lock
+import pandas as pd
+
+log_training_data = True
 agent_info = False
 inference = False
 
@@ -49,9 +54,40 @@ class Observation(BaseModel):
     state: list[float]
 
 class Experience(BaseModel):
-    next_state: list[float]
-    reward: float
-    done: bool
+    state: Union[list[float], list[list[float]]]
+    action: Union[list[float], list[list[float]]]
+    next_state: Union[list[float], list[list[float]]]
+    reward: Union[float, list[float]]
+    done: Union[bool, list[bool]]
+
+def normalize_exp(exp: Experience):
+    # Always return batch style (list of lists, list of floats, etc.)
+    state = exp.state if isinstance(exp.state[0], list) else [exp.state]
+    action = exp.action if isinstance(exp.action[0], list) else [exp.action]
+    next_state = exp.next_state if isinstance(exp.next_state[0], list) else [exp.next_state]
+    reward = exp.reward if isinstance(exp.reward, list) else [exp.reward]
+    done = exp.done if isinstance(exp.done, list) else [exp.done]
+
+    return state, action, next_state, reward, done
+
+experience_log = []
+log_lock = Lock()
+counter = 0
+
+def log_training(request: Experience):
+    with log_lock:
+        experience_log.append({
+            "state": request.state,
+            "action": request.action,
+            "next_state": request.next_state,
+            "reward": request.reward,
+            "done": request.done
+        })
+
+def save_log(path="data.csv"):
+    with log_lock:
+        df = pd.DataFrame(experience_log)
+    df.to_csv(path, index=False)
 
 # Startup functions
 @app.get("/")
@@ -85,8 +121,15 @@ async def step(request: Observation):
     
 @app.post("/rl/update")
 async def update(request: Experience):
+    global counter, log_training_data
     try:
-        AGENT.update((request.next_state, request.reward, request.done))
+        if log_training_data:
+            log_training(request)
+            counter += 1
+            if counter % 64 == 0:
+                save_log()
+
+        AGENT.update(normalize_exp(request))
     except Exception as e:
         logger.error(f"[!] Update error:\n{traceback.format_exc()}")
         raise HTTPException(status_code=400, detail=str(e))
