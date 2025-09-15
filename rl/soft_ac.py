@@ -7,10 +7,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.distributions import Normal, TransformedDistribution, TanhTransform, Bernoulli
-from .replay_memory import PriorityReplay, Transition
-# from .corippling_network import COR_Actor, COR_Critic
-
+from replay_memory import PriorityReplay, Transition
+from sac_nn import SAC_Actor, SAC_Critic
 import numpy as np
 
 device = torch.device(
@@ -40,13 +38,9 @@ class SoftAC:
         self.entropy_coef = entropy_coef
         self.target_update_freq = target_update_freq
 
-        if network_type == "SAC":
-            actor_network = SAC_Actor
-            critic_network = SAC_Critic
-        else:
-            actor_network = COR_Actor
-            critic_network = COR_Critic
-
+        actor_network = SAC_Actor
+        critic_network = SAC_Critic
+        
         self.actor = actor_network(state_dim, action_dim).to(device)
         self.critic_a = critic_network(state_dim, action_dim).to(device)
         self.critic_b = critic_network(state_dim, action_dim).to(device)
@@ -77,8 +71,6 @@ class SoftAC:
 
         self.state = None
         self.action = None
-
-        self.max_turn = math.pi/4
 
     def select_action(self, state, deterministic=False):
         self.actor.eval()
@@ -116,29 +108,22 @@ class SoftAC:
         self.state = state_tensor
         self.action = action_tensor
         
-        # Return action but scaled
-        # NOTE: Turning is always unscaled when training
+        # NOTE: Turning should always unscaled on server
         action = action_tensor.squeeze(0).tolist()
         if not batch:
             action = action_tensor.squeeze(0).tolist()
-            out = [float(action[0]), float(action[1] * self.max_turn)]
-            print(f"Action: {out}")
-            return out
+            return [float(action[0]), float(action[1])]
 
         actions = []
         for act in action_tensor:
             act = act.tolist()
-            actions.append([float(act[0]), float(act[1] * self.max_turn)])
+            actions.append([float(act[0]), float(act[1])])
+
         return actions
 
     def update(self, data):
+        # Appears excessive but it makes things less complicated and helps with multi-agent
         state, action, next_state, reward, done = data
-
-        print(state)
-        print(action)
-        print(next_state)
-        print(reward)
-        print(done)
 
         if state is not None:
             state_tensor = torch.tensor(state, dtype=torch.float32, device=device)
@@ -301,6 +286,26 @@ class SoftAC:
                 self.tau * local_param.data + (1.0 - self.tau) * target_param.data
             )
 
+    def _compute_log_probs(self, state_batch):
+        dists = self.actor.get_action_distribution(state_batch)
+        log_probs = 0.0
+        actions = []
+        for dist in dists:
+            if dist.has_rsample:
+                action = dist.rsample().view(-1, 1)
+                log_probs += dist.log_prob(action).sum(dim=-1)
+                actions.append(action)
+            else:
+                action = dist.sample().view(-1, 1)
+                log_probs += dist.log_prob(action)
+                actions.append(action)
+
+        log_probs = torch.clamp(log_probs, min=-10.0, max=10.0)
+
+        actions_tensor = torch.cat(actions, dim=-1)
+        
+        return log_probs, actions_tensor
+
     # Utility functions
     def save_policy(self, path="save/sac/"):
         os.makedirs(path, exist_ok=True)
@@ -349,149 +354,3 @@ class SoftAC:
         except FileNotFoundError as e:
             print(f"No checkpoint found: {str(e)}")
 
-# --- Neural networks --- #
-class SAC_Actor(nn.Module):
-    def __init__(self, state_dim: int, action_dim: int):
-        super().__init__()
-        
-        # State encoders
-        self.agent_encoder = nn.Sequential(
-            nn.Linear(3, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU()
-        )
-
-        self.target_encoder = nn.Sequential(
-            nn.Linear(3, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU()
-        )
-
-        # state_dim - 6 because everything else goes in here :)
-        aux_dim = max(1, state_dim - 6)
-        self.aux_encoder = nn.Sequential(
-            nn.Linear(aux_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU()
-        )
-
-        self.shared_layers = nn.Sequential(
-            nn.Linear(64 * 3, 256),
-            nn.LayerNorm(256),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(256, 128),
-            nn.LayerNorm(128),
-            nn.ReLU(),
-        )
-
-        self.move_head = nn.Linear(128, 1)
-        self.turn_mu_head = nn.Linear(128, 1)
-        self.turn_log_std_head = nn.Linear(128, 1)
-
-        self.apply(self._init_weights)
-        
-        # Initialize turn_mu bias to 0 to prevent local minima
-        nn.init.constant_(self.turn_mu_head.bias, 0)
-
-    def _init_weights(self, m):
-        if isinstance(m, nn.Linear):
-            torch.nn.init.xavier_uniform_(m.weight)
-            if m.bias is not None:
-                torch.nn.init.constant_(m.bias, 0)
-
-    def forward(self, state):
-        agent_pos = state[:, :3]
-        target_pos = state[:, 3:6]
-        aux_features = state[:, 6:]
-        
-        agent_feat = self.agent_encoder(agent_pos)
-        target_feat = self.target_encoder(target_pos)
-        aux_feat = self.aux_encoder(aux_features)
-        
-        x = torch.cat([agent_feat, target_feat, aux_feat], dim=1)
-        shared = self.shared_layers(x)
-        
-        move_logits = self.move_head(shared)
-        turn_mu = self.turn_mu_head(shared)
-        turn_log_std = torch.clamp(self.turn_log_std_head(shared), -10, 2)
-        
-        return move_logits, turn_mu, turn_log_std
-
-    def get_action_distribution(self, state):
-        move_logits, turn_mu, turn_log_std = self.forward(state)
-        
-        # Discrete movement distribution
-        move_dist = Bernoulli(logits=move_logits.squeeze(-1))
-        
-        # Continuous turning distribution with tanh squashing
-        turn_std = torch.exp(turn_log_std)
-        normal_dist = Normal(turn_mu.squeeze(-1), turn_std.squeeze(-1))
-        turn_dist = TransformedDistribution(normal_dist, TanhTransform())
-        
-        return move_dist, turn_dist
-
-
-class SAC_Critic(nn.Module):
-    def __init__(self, state_dim: int, action_dim: int):
-        super().__init__()
-        
-        # Same architecture as the actor
-        self.agent_encoder = nn.Sequential(
-            nn.Linear(3, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU()
-        )
-
-        self.target_encoder = nn.Sequential(
-            nn.Linear(3, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU()
-        )
-
-        aux_dim = max(1, state_dim - 6)
-        self.aux_encoder = nn.Sequential(
-            nn.Linear(aux_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU()
-        )
-
-        # Q-value network
-        self.q_network = nn.Sequential(
-            nn.Linear(64 * 3 + action_dim, 256),
-            nn.LayerNorm(256),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(256, 128),
-            nn.LayerNorm(128),
-            nn.ReLU(),
-            nn.Linear(128, 1)
-        )
-
-        self.apply(self._init_weights)
-
-    def _init_weights(self, m):
-        if isinstance(m, nn.Linear):
-            torch.nn.init.xavier_uniform_(m.weight)
-            if m.bias is not None:
-                torch.nn.init.constant_(m.bias, 0)
-
-    def forward(self, state, action):
-        agent_pos = state[:, :3]
-        target_pos = state[:, 3:6]
-        aux_features = state[:, 6:]
-        
-        agent_feat = self.agent_encoder(agent_pos)
-        target_feat = self.target_encoder(target_pos)
-        aux_feat = self.aux_encoder(aux_features)
-        
-        state_feat = torch.cat([agent_feat, target_feat, aux_feat], dim=1)
-        state_action = torch.cat([state_feat, action], dim=1)
-        
-        return self.q_network(state_action)

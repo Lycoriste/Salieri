@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Union
 from soft_ac import SoftAC
 import logging
 import traceback
@@ -49,9 +50,21 @@ class Observation(BaseModel):
     state: list[float]
 
 class Experience(BaseModel):
-    next_state: list[float]
-    reward: float
-    done: bool
+    state: Union[list[float], list[list[float]]]
+    action: Union[list[float], list[list[float]]]
+    next_state: Union[list[float], list[list[float]]]
+    reward: Union[float, list[float]]
+    done: Union[bool, list[bool]]
+
+def normalize_exp(exp: Experience):
+    # Always return batch style (list of lists, list of floats, etc.)
+    state = exp.state if isinstance(exp.state[0], list) else [exp.state]
+    action = exp.action if isinstance(exp.action[0], list) else [exp.action]
+    next_state = exp.next_state if isinstance(exp.next_state[0], list) else [exp.next_state]
+    reward = exp.reward if isinstance(exp.reward, list) else [exp.reward]
+    done = exp.done if isinstance(exp.done, list) else [exp.done]
+
+    return state, action, next_state, reward, done
 
 # Startup functions
 @app.get("/")
@@ -86,7 +99,7 @@ async def step(request: Observation):
 @app.post("/rl/update")
 async def update(request: Experience):
     try:
-        AGENT.update((request.next_state, request.reward, request.done))
+        AGENT.update(normalize_exp(request))
     except Exception as e:
         logger.error(f"[!] Update error:\n{traceback.format_exc()}")
         raise HTTPException(status_code=400, detail=str(e))

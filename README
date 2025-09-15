@@ -1,11 +1,9 @@
 Salieri
-=======
+==== Description ====
 
-A Roblox reinforcement learning project, and a PyTorch wrapper for Roblox.
+Personal Roblox reinforcement learning tool and PyTorch wrapper for Roblox.
 
-=======
-
-Dependencies:
+==== Dependencies ====
 
 C++
 - ASIO
@@ -19,31 +17,14 @@ Python
 Roblox
 - msgpack-luau (ZarsBranchkin)
 
-=======
+==== Plans ====
 
 TODO:
-- Autoregressive policies
+- Session manager
 - More reinforcement learning algorithms
 - Replicate training environment (Python + Gym)
-- Multi-agent
 - LLMs
-- Low variance network latency
 - Interpreter module
 - Cybersecurity
 - PyTorch -> libtorch
 
-Notes:
-- Off-policies are recommended due to sample efficiency
-  given the limited amount of HTTP requests allowed in Roblox.
-
-=======
-
-References:
-1. Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor
-   by Haarnoja et al. (https://arxiv.org/pdf/1801.01290)
-2. Soft Actor-Critic Algorithms and Applications
-   by Haarnoja et al. (https://arxiv.org/pdf/1812.05905)
-3. Prioritized Experience Replay
-   by Schaul et al. (https://arxiv.org/pdf/1511.05952)
-4. Grandmaster level in StarCraft II using multi-agent reinforcement learning
-   by Google Deepmind (https://storage.googleapis.com/deepmind-media/research/alphastar/AlphaStar_unformatted.pdf)
