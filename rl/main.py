@@ -17,6 +17,10 @@ from soft_ac import SoftAC
 import logging
 import traceback
 
+from threading import Lock
+import pandas as pd
+
+log_training_data = True
 agent_info = False
 inference = False
 
@@ -66,6 +70,25 @@ def normalize_exp(exp: Experience):
 
     return state, action, next_state, reward, done
 
+experience_log = []
+log_lock = Lock()
+counter = 0
+
+def log_training(request: Experience):
+    with log_lock:
+        experience_log.append({
+            "state": request.state,
+            "action": request.action,
+            "next_state": request.next_state,
+            "reward": request.reward,
+            "done": request.done
+        })
+
+def save_log(path="data.csv"):
+    with log_lock:
+        df = pd.DataFrame(experience_log)
+    df.to_csv(path, index=False)
+
 # Startup functions
 @app.get("/")
 async def root():
@@ -98,7 +121,14 @@ async def step(request: Observation):
     
 @app.post("/rl/update")
 async def update(request: Experience):
+    global counter, log_training_data
     try:
+        if log_training_data:
+            log_training(request)
+            counter += 1
+            if counter % 64 == 0:
+                save_log()
+
         AGENT.update(normalize_exp(request))
     except Exception as e:
         logger.error(f"[!] Update error:\n{traceback.format_exc()}")
