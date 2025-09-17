@@ -1,9 +1,9 @@
 import os, io
 
-import plotly.express as px
-import plotly.io as pio
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+# import plotly.express as px
+# import plotly.io as pio
+# import plotly.graph_objects as go
+# from plotly.subplots import make_subplots
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -20,7 +20,7 @@ import traceback
 from threading import Lock
 import pandas as pd
 
-log_training_data = True
+log_training_data = False
 agent_info = False
 inference = False
 
@@ -34,7 +34,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-AGENT = SoftAC(state_dim=12, action_dim=2, entropy_coef=0.05, network_type="COR", batch_size=256)
+AGENT = SoftAC(state_dim=12, action_dim=2, entropy_coef=0.05, batch_size=256)
 
 # FastAPI app
 app = FastAPI()

@@ -72,6 +72,7 @@ class SoftAC:
         self.state = None
         self.action = None
 
+
     def select_action(self, state, deterministic=False):
         self.actor.eval()
 
@@ -98,6 +99,7 @@ class SoftAC:
         self.actor.train()
         return action
 
+
     def step(self, state, deterministic=False):
         state_tensor = torch.tensor(state, dtype=torch.float32, device=device)
         batch = state_tensor.ndim == 2
@@ -108,18 +110,19 @@ class SoftAC:
         self.state = state_tensor
         self.action = action_tensor
         
-        # NOTE: Turning should always unscaled on server
+        # NOTE Actions should always unscaled on server and scaling should be performed by game
         action = action_tensor.squeeze(0).tolist()
         if not batch:
             action = action_tensor.squeeze(0).tolist()
-            return [float(action[0]), float(action[1])]
+            return [float(a) for a in action]
 
         actions = []
-        for act in action_tensor:
-            act = act.tolist()
-            actions.append([float(act[0]), float(act[1])])
+        for action in action_tensor:
+            action = action.tolist()
+            actions.append([float(a) for a in action])
 
         return actions
+
 
     def update(self, data):
         # Appears excessive but it makes things less complicated and helps with multi-agent
@@ -155,8 +158,9 @@ class SoftAC:
         else:
             self.state = None
 
+
     def optimize(self):
-        # TODO: Implement priority experience replay... haizz.....
+        # TODO: Priority replay unimplemented (!!!)
         self.actor.train()
         self.critic_a.train()
         self.critic_b.train()
@@ -207,6 +211,7 @@ class SoftAC:
 
         self.update_counter += 1
 
+
     def _compute_critic_loss(self,
                              state_batch,
                              action_batch,
@@ -216,25 +221,7 @@ class SoftAC:
         ):
         with torch.no_grad():
             # Sample next actions from current policy
-            next_move_dist, next_turn_dist = self.actor.get_action_distribution(next_state_batch)
-            next_move_actions = next_move_dist.sample()
-            next_turn_actions = next_turn_dist.rsample()
-            
-            # Ensure proper dimensions
-            if next_move_actions.dim() == 1:
-                next_move_actions = next_move_actions.unsqueeze(-1)
-            if next_turn_actions.dim() == 1:
-                next_turn_actions = next_turn_actions.unsqueeze(-1)
-            
-            next_actions = torch.cat([next_move_actions, next_turn_actions], dim=-1)
-
-            # Compute log probabilities for entropy regularization
-            next_move_log_probs = next_move_dist.log_prob(next_move_actions.squeeze(-1))
-            next_turn_log_probs = next_turn_dist.log_prob(next_turn_actions.squeeze(-1))
-            next_log_probs = next_move_log_probs + next_turn_log_probs
-
-            # Clamp log probs because gradients exploded
-            next_log_probs = torch.clamp(next_log_probs, -10, 10)
+            next_log_probs, next_actions = self._compute_log_probs(next_state_batch)
 
             # Compute target Q-values
             next_q1 = self.critic_a_target(next_state_batch, next_actions)
@@ -254,22 +241,10 @@ class SoftAC:
         critic_loss = F.mse_loss(current_q1, target_q) + F.mse_loss(current_q2, target_q)
         return critic_loss
 
+
     def _compute_actor_loss(self, state_batch):
         # Sample actions from current policy
-        move_dist, turn_dist = self.actor.get_action_distribution(state_batch)
-        move_actions = move_dist.sample()  # Use rsample for gradients
-        turn_actions = turn_dist.rsample()
-
-        move_actions = move_actions.view(-1, 1)
-        turn_actions = turn_actions.view(-1, 1)
-        
-        actions = torch.cat([move_actions, turn_actions], dim=-1)
-
-        # Compute log probabilities
-        move_log_probs = move_dist.log_prob(move_actions)
-        turn_log_probs = turn_dist.log_prob(turn_actions)
-        log_probs = move_log_probs + turn_log_probs.sum(dim=-1)
-        log_probs = torch.clamp(log_probs, -10, 10)
+        log_probs, actions = self._compute_log_probs(state_batch)
 
         # Compute Q-values
         q1 = self.critic_a(state_batch, actions).squeeze(-1)
@@ -279,6 +254,33 @@ class SoftAC:
         # Actor loss: maximize Q - alpha * log_prob
         actor_loss = (self.entropy_coef * log_probs - q_min).mean()
         return actor_loss
+    
+    
+    # NOTE Misleading name since it returns log_probs and action_batch
+    def _compute_log_probs(self, state_batch):
+        dists = self.actor.get_action_distribution(state_batch)
+        log_probs = torch.zeros(state_batch.size(0), device=state_batch.device)
+        actions = []
+
+        for dist in dists:
+            # Use rsample for continuous dists and transformed dists
+            action = dist.rsample() if dist.has_rsample else dist.sample()
+            if action.dim() == 1:
+                action = action.unsqueeze(-1)
+
+            lp = dist.log_prob(action)
+            if lp.dim() > 1:
+                lp = lp.sum(dim=-1)
+            log_probs += lp
+            actions.append(action)
+
+        # Prevent gradient explosion and unstable updates
+        # NOTE This is a hardcoded hyperparameter
+        log_probs = torch.clamp(log_probs, min=-10.0, max=10.0)
+        action_batch = torch.cat(actions, dim=-1)
+        
+        return log_probs, action_batch
+
 
     def _soft_update(self, local_model, target_model):
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
@@ -286,25 +288,6 @@ class SoftAC:
                 self.tau * local_param.data + (1.0 - self.tau) * target_param.data
             )
 
-    def _compute_log_probs(self, state_batch):
-        dists = self.actor.get_action_distribution(state_batch)
-        log_probs = 0.0
-        actions = []
-        for dist in dists:
-            if dist.has_rsample:
-                action = dist.rsample().view(-1, 1)
-                log_probs += dist.log_prob(action).sum(dim=-1)
-                actions.append(action)
-            else:
-                action = dist.sample().view(-1, 1)
-                log_probs += dist.log_prob(action)
-                actions.append(action)
-
-        log_probs = torch.clamp(log_probs, min=-10.0, max=10.0)
-
-        actions_tensor = torch.cat(actions, dim=-1)
-        
-        return log_probs, actions_tensor
 
     # Utility functions
     def save_policy(self, path="save/sac/"):
@@ -321,6 +304,7 @@ class SoftAC:
             'episode_reward': dict(self.episode_reward),
             'steps': self.steps,
         }, f"{path}/checkpoint_{self.episodes_total}.pth")
+
 
     def load_policy(self, path="save/sac/", episode_num=None):
         try:

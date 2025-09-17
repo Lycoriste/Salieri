@@ -51,6 +51,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${ASIO_INCLUDE_DIR}
     ${MSGPACK_INCLUDE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/include
 )
 
 # Link the libraries
