@@ -7,8 +7,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from replay_memory import PriorityReplay, Transition
-from sac_nn import SAC_Actor, SAC_Critic
+from .replay_memory import PriorityReplay, Transition
+from .sac_nn import SAC_Actor, SAC_Critic
 import numpy as np
 
 device = torch.device(
@@ -29,7 +29,6 @@ class SoftAC:
                  critic_lr: float = 1e-4,
                  entropy_coef: float = 0.05,
                  target_update_freq: int = 2,
-                 network_type: str = "SAC",
         ):
         self.state_dim = state_dim
         self.action_dim = action_dim
@@ -274,9 +273,9 @@ class SoftAC:
             log_probs += lp
             actions.append(action)
 
-        # Prevent gradient explosion and unstable updates
-        # NOTE This is a hardcoded hyperparameter
-        log_probs = torch.clamp(log_probs, min=-10.0, max=10.0)
+        # NOTE Use only if unstable updates are too frequent
+        # log_probs = torch.clamp(log_probs, min=-10.0, max=10.0)
+        
         action_batch = torch.cat(actions, dim=-1)
         
         return log_probs, action_batch

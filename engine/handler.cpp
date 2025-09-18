@@ -5,15 +5,28 @@
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
 
+struct Hash {
+    using is_transparent = void;
+    size_t operator()(std::string_view s) const noexcept {
+        return std::hash<std::string_view>{}(s);
+    }
+};
+
+struct Equal {
+    using is_transparent = void;
+    bool operator()(std::string_view a, std::string_view b) const noexcept {
+        return a == b;
+    }
+};
+
 template<typename key, typename val>
 using unordered_map = std::unordered_map<key, val>;
 using string = std::string;
 using string_view = std::string_view;
 namespace py = pybind11;
 
-// Maps user model name -> agent object
-unordered_map<string, py::object> model_map {};
-unordered_map<string, unordered_map<string, string>> model_metadata;
+// Maps model name to agent object
+std::unordered_map<string, py::object, Hash, Equal> model_map {};
 py::object sys_m;
 py::object torch_m;
 py::object soft_ac_m;
@@ -41,61 +54,45 @@ HttpResponse handle_start(const HttpRequest& req) {
   bool has_model = false;
 
   try {
-    auto name_opt = get_field<string_view>(req.body_view, "name");
-    if (!name_opt) {
-      std::cerr << "[!] Key: [name] not found or wrong type.\n";
+    auto payload = get_field<msgpack::object>(req.body_view, "payload");
+    if (!payload || payload->type != msgpack::type::MAP) {
+      err("[!] Payload was not found or wrong type.");
       return resp;
     }
 
-    model_name = *name_opt;
+    for (uint32_t i = 0; i < payload->via.map.size; i++) {
+      const msgpack::object_kv& kv = payload->via.map.ptr[i];
+      
+      if (kv.key.type != msgpack::type::STR) continue;
+      string_view key(kv.key.via.str.ptr, kv.key.via.str.size);
 
-    if (model_map.find(model_name) != model_map.end()) {
-      std::cout << "[*] Model already exists: " << model_name << ". Skipping initialization.\n";
-      has_model = true;
-      resp.status_code = HttpStatusCode::Ok;
-      return resp;
+      if (model_map.contains(key)) continue;
+      if (kv.val.type != msgpack::type::MAP) {
+        err("Model parameters must be a table/map/dict.");
+        continue;
+      }
+
+      try {
+        py::dict kwargs = msgpack_map_to_pydict(kv.val);
+        py::object agent = soft_ac_m.attr("SoftAC")(**kwargs);
+        model_map[string(key)] = agent;
+      } catch (const std::exception& e) {
+        err(e.what());
+        return resp;
+      }
     }
+
   } catch (const std::exception& e) {
-    std::cerr << "[!] Error reading model_name from payload: " << e.what() << std::endl;
+    err(e.what());
     return resp;
   }
-  
-  if (!has_model) {
-    // SoftAC by default
-    string algorithm = "SoftAC";
-    auto algorithm_opt = get_field<string>(req.body_view, "algorithm");
-    if (algorithm_opt) {
-      algorithm = *algorithm_opt;
-    }
 
-    auto params_opt = get_field<msgpack::object>(req.body_view, "params");
-    if (!params_opt) {
-      std::cerr << "[!] Missing model parameters.\n";
-      return resp;
-    }
-    msgpack::object& params = *params_opt;
-    if (params.type != msgpack::type::MAP) {
-      std::cerr << "[!] Params is not a map.\n";
-      return resp;
-    }
-    
-    try {
-      py::dict kwargs = msgpack_map_to_pydict(params);
-      py::object agent = soft_ac_m.attr("SoftAC")(**kwargs);
-      model_map[model_name] = agent;
-    } catch (const std::exception& e) {
-      std::cerr << "[!] Error creating model object at handle_start: " << e.what() << std::endl;
-      return resp;
-    }
-  }
-
-  // Everything works -> add server to active session 
-  std::cout << "[+] Session created successfully." << std::endl;
+  std::cout << "[+] Session created successfully." << std::endl; // This is a lie, I haven't implemented sessions yet
   resp.status_code = HttpStatusCode::Ok;
   return resp;
 }
 
-// Resolve save file naming conflicts
+// TODO
 HttpResponse handle_end(const HttpRequest& req) {
   HttpResponse resp {};
   resp.status_code = HttpStatusCode::InternalServerError;
@@ -154,8 +151,6 @@ HttpResponse handle_step(const HttpRequest& req) {
       model_to_id[*name_opt].push_back(agent_id);
       model_batch[*name_opt].push_back(*state_opt);
     }
-
-    pass("Batched states to respective models.");
     
     // Inference mode is a global setting
     bool inference_flag = false;
@@ -169,20 +164,17 @@ HttpResponse handle_step(const HttpRequest& req) {
     for (const auto& [model, state_batch] : model_batch) {
       print_mat(state_batch);
       py::array_t<float> mat = vec_to_numpy(state_batch);
-      pass("vec_to_numpy ran successfully.");
 
       auto model_it = model_map.find(model);
       if (model_it == model_map.end()) {
         err("Model " + string(model) + " is not found in map.");
         return resp;
       }
-      pass("Model " + string(model) + " is found in map.");
 
       if (model_it->second.is_none()) {
         err("Model " + string(model) + " is no longer a valid Python object.");
         return resp;
       }
-      pass("Model " + string(model) + " exists in memory.");
 
       const py::list& actions = model_map[model].attr("step")(mat, inference_flag);
       const auto& ids = model_to_id[model];
@@ -192,7 +184,6 @@ HttpResponse handle_step(const HttpRequest& req) {
         return resp;
       }
 
-      pass("Action inference passed.");
       std::vector<std::vector<float>> actions_vec = actions.cast<std::vector<std::vector<float>>>();
 
       for (size_t i = 0; i < ids.size(); ++i) {
@@ -277,7 +268,6 @@ HttpResponse handle_update(const HttpRequest& req) {
         if (key == "state") {
           if (val.type == msgpack::type::ARRAY) {
             state = val.as<std::vector<float>>();
-            pass("State passed.");
           } else {
             state = { val.as<float>() };
           }
@@ -285,7 +275,6 @@ HttpResponse handle_update(const HttpRequest& req) {
         } else if (key == "action") {
           if (val.type == msgpack::type::ARRAY) {
             action = val.as<std::vector<float>>();
-            pass("Action passed.");
           } else {
             action = { val.as<float>() };
           }
@@ -293,7 +282,6 @@ HttpResponse handle_update(const HttpRequest& req) {
         } else if (key == "next_state") {
           if (val.type == msgpack::type::ARRAY) {
             next_state = val.as<std::vector<float>>();
-            pass("Next_state passed.");
           } else {
             next_state = { val.as<float>() };
           }
@@ -301,9 +289,11 @@ HttpResponse handle_update(const HttpRequest& req) {
         } else if (key == "reward") {
           reward = agent_kv.val.as<float>();
           has_reward = true;
+
         } else if (key == "done") {
           done = agent_kv.val.as<bool>();
           has_done = true;
+
         } else if (key == "name") {
           model_name = agent_kv.val.as<string_view>();
           has_name = true;

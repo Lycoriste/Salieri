@@ -3,21 +3,22 @@
 #include <pybind11/numpy.h>
 
 inline void err(std::string_view message) {
-  std::cerr << "\033[31m[!] " << message << "\033[0m\n";
+  std::cerr << "\033[31m[!] " << message << "\033[0m\n";            // Red
 }
 
 inline void warn(std::string_view message) {
-  std::cout << "\033[33m[-] " << message << "\033[0m" << std::endl;
+  std::cout << "\033[33m[-] " << message << "\033[0m" << std::endl; // Yellow
 }
 
 inline void pass(std::string_view message) {
-  std::cout << "\033[32m[+] " << message << "\033[0m" << std::endl;
+  std::cout << "\033[32m[+] " << message << "\033[0m" << std::endl; // Green
 }
 
 inline void log(std::string_view message) {
-  std::cout << "[*] " << message << std::endl;
+  std::cout << "[*] " << message << std::endl;                      // White (default/normal)
 }
 
+// Specifically to print matrices
 template <typename T>
 void print_mat(const std::vector<std::vector<T>>& mat, std::ostream& os = std::cout) {
   os << "[\n";
@@ -34,6 +35,7 @@ void print_mat(const std::vector<std::vector<T>>& mat, std::ostream& os = std::c
   os << "]" << std::endl;
 }
 
+// Use to print out arrays in numpy style
 inline pybind11::array_t<float> vec_to_numpy(const std::vector<std::vector<float>>& mat) {
   if (mat.empty()) return pybind11::array_t<float>(std::vector<size_t>{0, 0});
   size_t rows = mat.size();
