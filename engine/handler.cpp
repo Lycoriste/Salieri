@@ -162,7 +162,6 @@ HttpResponse handle_step(const HttpRequest& req) {
     unordered_map<string, std::vector<float>> response {};
 
     for (const auto& [model, state_batch] : model_batch) {
-      print_mat(state_batch);
       py::array_t<float> mat = vec_to_numpy(state_batch);
 
       auto model_it = model_map.find(model);
@@ -225,7 +224,6 @@ HttpResponse handle_update(const HttpRequest& req) {
       return resp;
     }
 
-    unordered_map<string, std::vector<string_view>> model_to_id {};
     unordered_map<string, std::vector<std::vector<float>>> model_state_batch {};
     unordered_map<string, std::vector<std::vector<float>>> model_action_batch {};
     unordered_map<string, std::vector<std::vector<float>>> model_next_state_batch {};
@@ -317,7 +315,6 @@ HttpResponse handle_update(const HttpRequest& req) {
           continue;
       }
 
-      model_to_id[model_name].push_back(agent_id);
       model_state_batch[model_name].push_back(std::move(state));
       model_action_batch[model_name].push_back(std::move(action));
       model_next_state_batch[model_name].push_back(std::move(next_state));
@@ -326,7 +323,7 @@ HttpResponse handle_update(const HttpRequest& req) {
     }
     
     // Nothing to send back - just update the model
-    for (const auto& [model_name, _] : model_to_id) {
+    for (const auto& [model_name, _] : model_state_batch) {
         const auto& state = model_state_batch[model_name];
         const auto& action = model_action_batch[model_name];
         const auto& next_state = model_next_state_batch[model_name];

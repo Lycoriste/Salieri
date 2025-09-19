@@ -31,7 +31,8 @@ class SoftAC:
                  target_update_freq: int = 2,
         ):
         self.state_dim = state_dim
-        self.action_dim = action_dim
+        self.action_dim = action_dim # TODO: Requires parsing action payload 
+
         self.gamma = gamma
         self.tau = tau
         self.entropy_coef = entropy_coef
@@ -76,24 +77,26 @@ class SoftAC:
         self.actor.eval()
 
         with torch.no_grad():
-            if deterministic:
-                # For evaluation, use deterministic policy
-                move_logits, turn_mu, _ = self.actor(state)
-                move_action = (torch.sigmoid(move_logits) > 0.5).float()
-                turn_action = torch.tanh(turn_mu)
-            else:
-                # For training, sample from policy
-                move_dist, turn_dist = self.actor.get_action_distribution(state)
-                move_action = move_dist.sample()
-                turn_action = turn_dist.rsample()
+            actions = []
+            dists = self.actor.get_action_distribution(state)
             
-            # Dimension checking
-            if move_action.dim() == 1:
-                move_action = move_action.unsqueeze(-1)
-            if turn_action.dim() == 1:
-                turn_action = turn_action.unsqueeze(-1)
+            for dist in dists:
+                if deterministic:
+                    if hasattr(dist, "mean"):
+                        action = dist.mean
+                    elif hasattr(dist, "probs"):
+                        action = torch.argmax(dist.probs, dim=-1, keepdim=True)
+                    else:
+                        print("[!] Deterministic action could not be resolved.")
+                        action = dist.rsample if dist.has_rsample else dist.sample()
+                else:
+                    action = dist.rsample() if dist.has_rsample else dist.sample()
+                
+                if (action.dim() == 1):
+                    action = action.unsqueeze(-1)
+                actions.append(action)
             
-            action = torch.cat([move_action, turn_action], dim=-1)
+            action = torch.cat(actions, dim=-1)
 
         self.actor.train()
         return action
@@ -110,7 +113,6 @@ class SoftAC:
         self.action = action_tensor
         
         # NOTE Actions should always unscaled on server and scaling should be performed by game
-        action = action_tensor.squeeze(0).tolist()
         if not batch:
             action = action_tensor.squeeze(0).tolist()
             return [float(a) for a in action]
@@ -124,38 +126,27 @@ class SoftAC:
 
 
     def update(self, data):
-        # Appears excessive but it makes things less complicated and helps with multi-agent
-        state, action, next_state, reward, done = data
-
-        if state is not None:
+        state_batch, action_batch, next_state_batch, reward_batch, done_batch = data
+        
+        # TODO: Needs more testing
+        for state, action, next_state, reward, done in zip(state_batch, 
+                                                           action_batch, 
+                                                           next_state_batch, 
+                                                           reward_batch, 
+                                                           done_batch):
             state_tensor = torch.tensor(state, dtype=torch.float32, device=device)
-            action_tensor = torch.tensor(action, dtype=torch.float32, device=device) # Bandaid solution
+            action_tensor = torch.tensor(action, dtype=torch.float32, device=device)
             next_state_tensor = torch.tensor(next_state, dtype=torch.float32, device=device)
             reward_tensor = torch.tensor(reward, dtype=torch.float32, device=device)
             done_tensor = torch.tensor(done, dtype=torch.bool, device=device)
 
-            # Friendly Amazon package
             package = Transition(state_tensor, action_tensor, next_state_tensor, reward_tensor, done_tensor)
             self.memory.push(*package)
 
-        # Update statistics
-        self.episode_reward[self.episodes_total] += sum(reward)
-        self.episode_length[self.episodes_total] += 1
-        self.steps += 1
-
-        if done:
-            self.episodes_total += 1
-
         # Update networks and everything breaks
         if len(self.memory) >= self.batch_size:
+            print("\033[36m[!] Updated: check for bugs.")
             self.optimize()
-
-        # Update state for next step
-        # NOTE: Need experimenting with this to see if ROBLOX script is bugged
-        if not done:
-            self.state = torch.tensor([next_state], dtype=torch.float32, device=device)
-        else:
-            self.state = None
 
 
     def optimize(self):
@@ -180,7 +171,7 @@ class SoftAC:
         )
 
         if torch.isnan(critic_loss):
-            print("[!] Warning: critic_loss was NaN, skipping update")
+            print("\033[31m[!] Warning: critic_loss was NaN, skipping update")
             return  # Skip update if loss is NaN
 
         # Update critics
@@ -196,7 +187,7 @@ class SoftAC:
         if self.update_counter % self.target_update_freq == 0:
             actor_loss = self._compute_actor_loss(state_batch)
             if torch.isnan(actor_loss):
-                print("[!] Warning: actor_loss was NaN, skipping update")
+                print("\033[31m[!] Warning: actor_loss was NaN, skipping update")
                 return # Skip update if loss is NaN
             
             self.actor_optimizer.zero_grad()
@@ -274,8 +265,7 @@ class SoftAC:
             actions.append(action)
 
         # NOTE Use only if unstable updates are too frequent
-        # log_probs = torch.clamp(log_probs, min=-10.0, max=10.0)
-        
+        log_probs = torch.clamp(log_probs, min=-10.0, max=10.0)
         action_batch = torch.cat(actions, dim=-1)
         
         return log_probs, action_batch

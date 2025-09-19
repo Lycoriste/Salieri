@@ -98,7 +98,6 @@ class Session : public std::enable_shared_from_this<Session> {
 
         if (auto server_id_opt = get_field<int>(req_.body_view, "server_id")) {
             int server_id = *server_id_opt;
-            std::cout << "[*] Server id: " << server_id << std::endl;
         } else {
             std::cerr << "[!] server_id not found or not an int." << std::endl;
         }
@@ -178,7 +177,6 @@ class Server {
       acceptor_.async_accept([this](std::error_code ec, tcp::socket socket) {
         if (!ec) {
           std::make_shared<Session>(std::move(socket))->start();
-          std::cout << "[+] Request accepted.\n";
         }
         do_accept();
       });
