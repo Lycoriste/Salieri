@@ -134,11 +134,11 @@ class SoftAC:
                                                            next_state_batch, 
                                                            reward_batch, 
                                                            done_batch):
-            state_tensor = torch.tensor(state, dtype=torch.float32, device=device)
-            action_tensor = torch.tensor(action, dtype=torch.float32, device=device)
-            next_state_tensor = torch.tensor(next_state, dtype=torch.float32, device=device)
-            reward_tensor = torch.tensor(reward, dtype=torch.float32, device=device)
-            done_tensor = torch.tensor(done, dtype=torch.bool, device=device)
+            state_tensor = torch.tensor([state], dtype=torch.float32, device=device)
+            action_tensor = torch.tensor([action], dtype=torch.float32, device=device)
+            next_state_tensor = torch.tensor([next_state], dtype=torch.float32, device=device)
+            reward_tensor = torch.tensor([reward], dtype=torch.float32, device=device)
+            done_tensor = torch.tensor([done], dtype=torch.bool, device=device)
 
             package = Transition(state_tensor, action_tensor, next_state_tensor, reward_tensor, done_tensor)
             self.memory.push(*package)
