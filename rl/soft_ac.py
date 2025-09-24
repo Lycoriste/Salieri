@@ -20,7 +20,7 @@ device = torch.device(
 class SoftAC:
     def __init__(self,
                  state_dim: int,
-                 action_dim: int,
+                 action_design: dict,
                  batch_size: int = 256,
                  replay_capacity: int = 10000,
                  gamma: float = 0.99,
@@ -31,7 +31,7 @@ class SoftAC:
                  target_update_freq: int = 2,
         ):
         self.state_dim = state_dim
-        self.action_dim = action_dim # TODO: Requires parsing action payload 
+        self.action_dim = self.count_action(action_design)
 
         self.gamma = gamma
         self.tau = tau
@@ -145,7 +145,6 @@ class SoftAC:
 
         # Update networks and everything breaks
         if len(self.memory) >= self.batch_size:
-            print("\033[36m[!] Updated: check for bugs.")
             self.optimize()
 
 
@@ -264,7 +263,7 @@ class SoftAC:
             log_probs += lp
             actions.append(action)
 
-        # NOTE Use only if unstable updates are too frequent
+        # NOTE Use only if NaN updates are too frequent
         log_probs = torch.clamp(log_probs, min=-10.0, max=10.0)
         action_batch = torch.cat(actions, dim=-1)
         
@@ -277,53 +276,25 @@ class SoftAC:
                 self.tau * local_param.data + (1.0 - self.tau) * target_param.data
             )
 
+    
+    def count_action(self, action_design: dict) -> int:
+        count = 0
+        PARAM_COUNT = {
+           "normal": 2,     # mu + std 
+           "continuous": 2, # mu + std 
+           "binary": 1,     # logit 
+           "logit": 1,      # logit 
+        }
 
-    # Utility functions
-    def save_policy(self, path="save/sac/"):
-        os.makedirs(path, exist_ok=True)
-        
-        torch.save({
-            'actor': self.actor.state_dict(),
-            'critic_a': self.critic_a.state_dict(),
-            'critic_b': self.critic_b.state_dict(),
-            'actor_optimizer': self.actor_optimizer.state_dict(),
-            'critic_optimizer': self.critic_optimizer.state_dict(),
-            'episodes_total': self.episodes_total,
-            'episode_length': dict(self.episode_length),
-            'episode_reward': dict(self.episode_reward),
-            'steps': self.steps,
-        }, f"{path}/checkpoint_{self.episodes_total}.pth")
-
-
-    def load_policy(self, path="save/sac/", episode_num=None):
-        try:
-            if episode_num is not None:
-                checkpoint_path = f"{path}/checkpoint_{episode_num}.pth"
+        for params in action_design.values():
+            t = params["type"].lower()
+            if t in PARAM_COUNT:
+                count += PARAM_COUNT[t]
+            elif t == "categorical":            # unique case
+                count += params["n_classes"]
             else:
-                import glob
-                checkpoints = glob.glob(f"{path}/checkpoint_*.pth")
-                if not checkpoints:
-                    raise FileNotFoundError(f"No checkpoints found in {path}")
-                checkpoint_path = max(checkpoints, key=lambda x: int(x.split('_')[-1].split('.')[0]))
-            
-            checkpoint = torch.load(checkpoint_path, map_location=device)
-            
-            self.actor.load_state_dict(checkpoint['actor'])
-            self.critic_a.load_state_dict(checkpoint['critic_a'])
-            self.critic_b.load_state_dict(checkpoint['critic_b'])
-            self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer'])
-            self.critic_optimizer.load_state_dict(checkpoint['critic_optimizer'])
+                raise ValueError(f"Unsupported action type: {t}")
+    
+        return count
 
-            self.critic_a_target.load_state_dict(self.critic_a.state_dict())
-            self.critic_b_target.load_state_dict(self.critic_b.state_dict())
-            
-            self.episodes_total = checkpoint['episodes_total']
-            self.episode_length = defaultdict(int, checkpoint.get('episode_length', {}))
-            self.episode_reward = defaultdict(float, checkpoint.get('episode_reward', {}))
-            self.steps = checkpoint['steps']
-            
-            print(f"Loaded checkpoint from episode {self.episodes_total}")
-            
-        except FileNotFoundError as e:
-            print(f"No checkpoint found: {str(e)}")
 

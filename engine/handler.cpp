@@ -40,7 +40,8 @@ void init_py() {
 }
 
 // TODO: Figure out the msgpack formatting for designing NNs
-void create_neural_network();
+void create_neural_network() {
+};
 
 // TODO: Add authentication
 HttpResponse handle_start(const HttpRequest& req) {
@@ -142,7 +143,7 @@ HttpResponse handle_step(const HttpRequest& req) {
         continue;
       }
 
-      auto name_opt = get_field<string>(agent_params, "name");
+      auto name_opt = get_field<string>(agent_params, "model_name");
       if (!name_opt) {
         std::cerr << "[!] Missing model name for agent " << agent_id << std::endl;
         continue;
@@ -206,6 +207,7 @@ HttpResponse handle_step(const HttpRequest& req) {
 }
 
 // Requires next_state, reward, done
+// Rewrite -- its doing a lot of unnecessary dead code stuff
 HttpResponse handle_update(const HttpRequest& req) {
   HttpResponse resp {};
   resp.http_version = req.http_version;
@@ -292,7 +294,7 @@ HttpResponse handle_update(const HttpRequest& req) {
           done = agent_kv.val.as<bool>();
           has_done = true;
 
-        } else if (key == "name") {
+        } else if (key == "model_name") {
           model_name = agent_kv.val.as<string_view>();
           has_name = true;
         }
@@ -311,7 +313,7 @@ HttpResponse handle_update(const HttpRequest& req) {
           if (!has_done)
             std::cerr << " └── done is missing from agent: " << agent_id << std::endl;
           if (!has_name)
-            std::cerr << " └── name is missing from agent: " << agent_id << std::endl;
+            std::cerr << " └── model_name is missing from agent: " << agent_id << std::endl;
           continue;
       }
 
